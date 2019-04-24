@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Control.Parallel.Meta
@@ -24,6 +25,9 @@ import Control.Monad
 import Control.Parallel.Meta.Worker
 import Data.Concurrent.Deque.Class
 import Data.Monoid
+#if __GLASGOW_HASKELL__ >= 800
+import Data.Semigroup                                               ( Semigroup(..) )
+#endif
 import Data.Sequence                                            ( Seq )
 import Data.Range.Range                                         as R
 import qualified Data.Vector                                    as V
@@ -38,7 +42,15 @@ import GHC.Base                                                 ( quotInt, remIn
 data Startup = Startup {
   _runStartup :: Gang -> IO () }
 
+#if __GLASGOW_HASKELL__ >= 800
+instance Semigroup Startup where
+  {-# INLINE (<>) #-}
+  Startup st1 <> Startup st2 = Startup $ \g -> st1 g >> st2 g
+#endif
+
 instance Monoid Startup where
+  {-# INLINE mempty  #-}
+  {-# INLINE mappend #-}
   mempty                            = Startup $ \_ -> return ()
   Startup st1 `mappend` Startup st2 = Startup $ \g -> st1 g >> st2 g
 
@@ -49,9 +61,23 @@ instance Monoid Startup where
 -- program.
 --
 data WorkSearch = WorkSearch {
-  runWorkSearch :: Int -> Workers -> IO (Maybe Range) }
+  runWorkSearch :: Int -> Workers -> IO (Maybe Range)
+  }
+
+#if __GLASGOW_HASKELL__ >= 800
+instance Semigroup WorkSearch where
+  {-# INLINE (<>) #-}
+  WorkSearch ws1 <> WorkSearch ws2 =
+    WorkSearch $ \tid st -> do
+        mwork <- ws1 tid st
+        case mwork of
+          Nothing -> ws2 tid st
+          _       -> return mwork
+#endif
 
 instance Monoid WorkSearch where
+  {-# INLINE mempty  #-}
+  {-# INLINE mappend #-}
   mempty                                  = WorkSearch $ \_ _ -> return Nothing
   WorkSearch ws1 `mappend` WorkSearch ws2 =
     WorkSearch $ \tid st -> do
@@ -71,9 +97,17 @@ data Resource = Resource {
     workSearch  :: WorkSearch
   }
 
+#if __GLASGOW_HASKELL__ >= 800
+instance Semigroup Resource where
+  {-# INLINE (<>) #-}
+  Resource ws1 <> Resource ws2 = Resource (ws1 <> ws2)
+#endif
+
 instance Monoid Resource where
+  {-# INLINE mempty  #-}
+  {-# INLINE mappend #-}
   mempty                                = Resource mempty
-  mappend (Resource ws1) (Resource ws2) = Resource (ws1 <> ws2)
+  mappend (Resource ws1) (Resource ws2) = Resource (ws1 `mappend` ws2)
 
 
 -- | An action to execute. The first parameters are the start and end indices of
@@ -111,7 +145,16 @@ data Finalise = Finalise {
     _runFinalise :: Seq Range -> IO ()
   }
 
+#if __GLASGOW_HASKELL__ >= 800
+instance Semigroup Finalise where
+  {-# INLINE (<>) #-}
+  Finalise f1 <> Finalise f2 = Finalise $ \r -> f1 r >> f2 r
+#endif
+
+
 instance Monoid Finalise where
+  {-# INLINE mempty  #-}
+  {-# INLINE mappend #-}
   mempty                            = Finalise $ \_ -> return ()
   Finalise f1 `mappend` Finalise f2 = Finalise $ \r -> f1 r >> f2 r
 
@@ -122,6 +165,7 @@ instance Monoid Finalise where
 -- We just have the first thread of the gang execute the operation, but we could
 -- also make the threads compete, which might be useful on a loaded system.
 --
+{-# INLINEABLE runSeqIO #-}
 runSeqIO
     :: Gang
     -> Range
@@ -180,6 +224,7 @@ runSeqIO gang (IE u v) action =
 -- TLM: The initial work distribution should probably be aligned to cache
 --      boundaries, rather than attempting to split exactly evenly.
 --
+{-# INLINEABLE runParIO #-}
 runParIO
     :: Resource
     -> Gang

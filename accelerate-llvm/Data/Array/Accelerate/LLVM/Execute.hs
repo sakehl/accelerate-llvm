@@ -564,7 +564,7 @@ executeOpenSeq mi _ma i s aenv stream
                 -> LLVM arch (arrs, Int)
     executeSeq' prods s = do
       index             <- executeExp (initialIndex (Const mi)) Aempty stream
-      (ext, Just aenv') <- evalSources (indexSize index) prods
+      ~(ext, Just aenv') <- evalSources (indexSize index) prods
       case s of
         Producer (Pull src) s -> executeSeq' (PushEnv prods (Pull src)) s
         Producer (ProduceAccum l f a) (Consumer (Last a' d)) -> (first last <$>) $
