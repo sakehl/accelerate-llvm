@@ -50,6 +50,8 @@ import qualified Data.Array.Accelerate.LLVM.Native.Debug            as Debug
 import Control.Monad.Except                                         ( runExceptT )
 import Control.Monad.State
 import Data.Maybe
+import Data.ByteString.Short.Char8                                  as BS
+import Data.ByteString.Char8                                        as B
 
 
 instance Compile Native where
@@ -68,7 +70,7 @@ compileForNativeTarget acc aenv = do
   -- Generate code for this Acc operation
   --
   let ast        = unModule (llvmOfOpenAcc target acc aenv)
-      triple     = fromMaybe "" (moduleTargetTriple ast)
+      triple     = fromMaybe "" (BS.unpack <$> moduleTargetTriple ast)
       datalayout = moduleDataLayout ast
 
   -- Lower the generated LLVM to an executable function(s)
@@ -76,14 +78,14 @@ compileForNativeTarget acc aenv = do
   mdl <- liftIO .
     compileModule                         $ \k       ->
     withContext                           $ \ctx     ->
-    runExcept $ withModuleFromAST ctx ast $ \mdl     ->
-    runExcept $ withNativeTargetMachine   $ \machine ->
-      withTargetLibraryInfo triple        $ \libinfo -> do
+    withModuleFromAST ctx ast             $ \mdl     ->
+    withNativeTargetMachine               $ \machine ->
+      withTargetLibraryInfo (BS.pack triple) $ \libinfo -> do
         optimiseModule datalayout (Just machine) (Just libinfo) mdl
 
         Debug.when Debug.verbose $ do
-          Debug.traceIO Debug.dump_cc  =<< moduleLLVMAssembly mdl
-          Debug.traceIO Debug.dump_asm =<< runExcept (moduleTargetAssembly machine mdl)
+          Debug.traceIO Debug.dump_cc . B.unpack =<<  (moduleLLVMAssembly mdl)
+          Debug.traceIO Debug.dump_asm . B.unpack =<<  (moduleTargetAssembly machine mdl)
 
         withMCJIT ctx opt model ptrelim fast $ \mcjit -> do
           withModuleInEngine mcjit mdl       $ \exe   -> do
@@ -92,8 +94,6 @@ compileForNativeTarget acc aenv = do
   return $ NativeR mdl
 
   where
-    runExcept   = either ($internalError "compileForNativeTarget") return <=< runExceptT
-
     opt         = Just 3        -- optimisation level
     model       = Nothing       -- code model?
     ptrelim     = Nothing       -- True to disable frame pointer elimination

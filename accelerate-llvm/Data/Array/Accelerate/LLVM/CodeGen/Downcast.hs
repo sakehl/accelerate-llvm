@@ -24,6 +24,7 @@ module Data.Array.Accelerate.LLVM.CodeGen.Downcast (
 import Prelude                                                      hiding ( Ordering(..), const )
 import Data.Bits
 import Foreign.C.Types
+import Data.ByteString.Short.Char8                                  as BS
 
 import Data.Array.Accelerate.AST                                    ( tupleIdxToInt )
 import Data.Array.Accelerate.Error
@@ -114,7 +115,7 @@ instance Downcast FastMathFlags L.FastMathFlags where
 -- --------------------------
 
 instance Downcast (Name a) L.Name where
-  downcast (Name s)   = L.Name s
+  downcast (Name s)   = L.Name (BS.pack s)
   downcast (UnName n) = L.UnName n
 
 
@@ -303,7 +304,7 @@ instance Downcast Metadata L.Operand where
   downcast = L.MetadataOperand . downcast
 
 instance Downcast Metadata L.Metadata where
-  downcast (MetadataStringOperand s) = L.MDString s
+  downcast (MetadataStringOperand s) = L.MDString (BS.pack s)
   downcast (MetadataNodeOperand n)   = L.MDNode (downcast n)
   downcast (MetadataOperand o)       = L.MDValue (downcast o)
 
@@ -327,7 +328,7 @@ instance Downcast (Terminator a) L.Terminator where
 -- --------------------------
 
 instance Downcast Label L.Name where
-  downcast (Label l) = L.Name l
+  downcast (Label l) = L.Name (BS.pack l)
 
 
 -- LLVM.General.AST.Type.Global
@@ -440,10 +441,10 @@ instance Downcast (IntegralType a) L.Type where
   downcast (TypeCULLong _) = L.IntegerType 64
 
 instance Downcast (FloatingType a) L.Type where
-  downcast (TypeFloat   _) = L.FloatingPointType 32 L.IEEE
-  downcast (TypeDouble  _) = L.FloatingPointType 64 L.IEEE
-  downcast (TypeCFloat  _) = L.FloatingPointType 32 L.IEEE
-  downcast (TypeCDouble _) = L.FloatingPointType 64 L.IEEE
+  downcast TypeFloat{}   = L.FloatingPointType L.FloatFP
+  downcast TypeDouble{}  = L.FloatingPointType L.DoubleFP
+  downcast TypeCFloat{}  = L.FloatingPointType L.FloatFP
+  downcast TypeCDouble{} = L.FloatingPointType L.DoubleFP
 
 instance Downcast (NonNumType a) L.Type where
   downcast (TypeBool   _) = L.IntegerType 1

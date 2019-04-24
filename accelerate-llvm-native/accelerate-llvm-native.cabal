@@ -77,10 +77,14 @@ Library
     Data.Array.Accelerate.LLVM.Native.Execute.LBS
     Data.Array.Accelerate.LLVM.Native.Execute.Marshal
 
+    Data.ByteString.Short.Char8
+    Data.ByteString.Short.Extra
+
   build-depends:
           base                          >= 4.7 && < 4.10
         , accelerate                    == 2.0.*
         , accelerate-llvm               == 2.0.*
+        , bytestring                    >= 0.10.4
         , containers                    >= 0.5 && < 0.6
         , directory                     >= 1.0
         , dlist                         >= 0.6

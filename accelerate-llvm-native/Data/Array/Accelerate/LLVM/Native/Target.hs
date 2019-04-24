@@ -33,6 +33,7 @@ import Control.Parallel.Meta                                        ( Executable
 import Control.Monad.Except
 import System.IO.Unsafe
 
+import Data.ByteString.Short.Char8                                  as BS
 
 -- | Native machine code JIT execution target
 --
@@ -51,7 +52,7 @@ instance Target Native where
 --
 {-# NOINLINE nativeTargetTriple #-}
 nativeTargetTriple :: String
-nativeTargetTriple = unsafePerformIO $
+nativeTargetTriple = BS.unpack . unsafePerformIO $
     -- A target triple suitable for loading code into the current process
     getProcessTargetTriple
 
@@ -62,8 +63,7 @@ nativeTargetTriple = unsafePerformIO $
 nativeDataLayout :: DataLayout
 nativeDataLayout
   = unsafePerformIO
-  $ fmap (either ($internalError "nativeDataLayout") id)
-  $ runExceptT (withNativeTargetMachine getTargetMachineDataLayout)
+  $ withNativeTargetMachine getTargetMachineDataLayout
 
 
 -- | Bracket the creation and destruction of a target machine for the native
@@ -71,6 +71,6 @@ nativeDataLayout
 --
 withNativeTargetMachine
     :: (TargetMachine -> IO a)
-    -> ExceptT String IO a
+    -> IO a
 withNativeTargetMachine = withHostTargetMachine
 

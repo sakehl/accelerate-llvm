@@ -27,6 +27,7 @@ import Data.Array.Accelerate.Error
 -- standard library
 import Data.Maybe
 
+import Data.ByteString.Short.Char8                                  as BS
 
 -- | Return function pointers to all of the global function definitions in the
 -- given executable module.
@@ -40,7 +41,7 @@ getGlobalFunctions ast exe
   = mapM (\f -> (f,) `fmap` link f)
   $ globalFunctions (moduleDefinitions ast)
   where
-    link f = fromMaybe ($internalError "link" "function not found") `fmap` getFunction exe (Name f)
+    link f = fromMaybe ($internalError "link" "function not found") `fmap` getFunction exe (Name (BS.pack f))
 
 
 -- | Extract the names of the function definitions from a module
@@ -49,7 +50,7 @@ getGlobalFunctions ast exe
 --
 globalFunctions :: [Definition] -> [String]
 globalFunctions defs =
-  [ n | GlobalDefinition Function{..} <- defs
+  [ BS.unpack n | GlobalDefinition Function{..} <- defs
       , not (null basicBlocks)
       , let Name n = name
       ]

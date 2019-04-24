@@ -52,6 +52,7 @@ import qualified Data.Foldable                                          as F
 import qualified Data.HashMap.Strict                                    as HashMap
 import qualified Data.Map                                               as Map
 import qualified Data.Sequence                                          as Seq
+import qualified Data.ByteString.Short.Char8                            as BS
 
 -- accelerate
 import Data.Array.Accelerate.Error
@@ -137,9 +138,9 @@ runLLVM  ll =
   Module { moduleMetadata = md
          , unModule       = LLVM.Module
                           { LLVM.moduleName           = name
-                          , LLVM.moduleSourceFileName = []
+                          , LLVM.moduleSourceFileName = BS.pack []
                           , LLVM.moduleDataLayout     = targetDataLayout (undefined::arch)
-                          , LLVM.moduleTargetTriple   = targetTriple (undefined::arch)
+                          , LLVM.moduleTargetTriple   = BS.pack <$> targetTriple (undefined::arch)
                           , LLVM.moduleDefinitions    = definitions
                           }
          }
@@ -360,7 +361,7 @@ declare g =
       unique _                    = Just g
 
       name = case LLVM.name g of
-               LLVM.Name n      -> Label n
+               LLVM.Name n      -> Label (BS.unpack n)
                LLVM.UnName n    -> Label (show n)
   in
   modify (\s -> s { symbolTable = Map.alter unique name (symbolTable s) })
@@ -410,7 +411,7 @@ createMetadata md = build (HashMap.toList md) (Seq.empty, Seq.empty)
     meta n (key, vals)
       = let node i      = LLVM.MetadataNodeID (fromIntegral (i+n))
             nodes       = Seq.mapWithIndex (\i x -> LLVM.MetadataNodeDefinition (node i) (downcast (F.toList x))) vals
-            name        = LLVM.NamedMetadataDefinition key [ node i | i <- [0 .. Seq.length vals - 1] ]
+            name        = LLVM.NamedMetadataDefinition (BS.pack key) [ node i | i <- [0 .. Seq.length vals - 1] ]
         in
         (name, nodes)
 
