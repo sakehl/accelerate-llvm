@@ -76,14 +76,14 @@ compileForNativeTarget acc aenv = do
   mdl <- liftIO .
     compileModule                         $ \k       ->
     withContext                           $ \ctx     ->
-    runExcept $ withModuleFromAST ctx ast $ \mdl     ->
-    runExcept $ withNativeTargetMachine   $ \machine ->
+    withModuleFromAST ctx ast $ \mdl     ->
+    withNativeTargetMachine   $ \machine ->
       withTargetLibraryInfo triple        $ \libinfo -> do
         optimiseModule datalayout (Just machine) (Just libinfo) mdl
 
         Debug.when Debug.verbose $ do
           Debug.traceIO Debug.dump_cc  =<< moduleLLVMAssembly mdl
-          Debug.traceIO Debug.dump_asm =<< runExcept (moduleTargetAssembly machine mdl)
+          Debug.traceIO Debug.dump_asm =<< moduleTargetAssembly machine mdl
 
         withMCJIT ctx opt model ptrelim fast $ \mcjit -> do
           withModuleInEngine mcjit mdl       $ \exe   -> do
@@ -92,7 +92,6 @@ compileForNativeTarget acc aenv = do
   return $ NativeR mdl
 
   where
-    runExcept   = either ($internalError "compileForNativeTarget") return <=< runExceptT
 
     opt         = Just 3        -- optimisation level
     model       = Nothing       -- code model?

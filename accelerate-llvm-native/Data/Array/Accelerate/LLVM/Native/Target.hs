@@ -62,8 +62,7 @@ nativeTargetTriple = unsafePerformIO $
 nativeDataLayout :: DataLayout
 nativeDataLayout
   = unsafePerformIO
-  $ fmap (either ($internalError "nativeDataLayout") id)
-  $ runExceptT (withNativeTargetMachine getTargetMachineDataLayout)
+  $ withNativeTargetMachine getTargetMachineDataLayout
 
 
 -- | Bracket the creation and destruction of a target machine for the native
@@ -71,6 +70,6 @@ nativeDataLayout
 --
 withNativeTargetMachine
     :: (TargetMachine -> IO a)
-    -> ExceptT String IO a
+    -> IO a
 withNativeTargetMachine = withHostTargetMachine
 
