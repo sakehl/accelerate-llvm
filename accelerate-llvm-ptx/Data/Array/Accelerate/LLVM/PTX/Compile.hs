@@ -68,6 +68,7 @@ import Data.ByteString                                              ( ByteString
 import Data.List                                                    ( intercalate )
 import Text.Printf                                                  ( printf )
 import qualified Data.ByteString.Char8                              as B
+import qualified Data.ByteString.Short                              as BS
 import qualified Data.Map                                           as Map
 import Prelude                                                      as P
 
@@ -199,7 +200,7 @@ compileModuleNVPTX dev name mdl =
         Debug.traceIO Debug.verbose =<< LLVM.moduleLLVMAssembly mdl
 
       -- Lower the LLVM module into target assembly (PTX)
-      ptx <- runError (LLVM.moduleTargetAssembly nvptx mdl)
+      ptx <- LLVM.moduleTargetAssembly nvptx mdl
 
       -- Link into a new CUDA module in the current context
       linkPTX name (B.pack ptx)
@@ -242,7 +243,7 @@ linkFunction
     -> LaunchConfig                     -- launch configuration for this global function
     -> IO Kernel
 linkFunction mdl name configure = do
-  f     <- CUDA.getFun mdl name
+  f     <- CUDA.getFun mdl (BS.toShort $ B.pack name)
   regs  <- CUDA.requires f CUDA.NumRegs
   ssmem <- CUDA.requires f CUDA.SharedSizeBytes
   cmem  <- CUDA.requires f CUDA.ConstSizeBytes

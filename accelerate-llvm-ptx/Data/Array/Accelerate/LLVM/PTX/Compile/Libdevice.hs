@@ -111,10 +111,10 @@ nvvmReflectPass_mdl =
 nvvmReflectPass_bc :: (String, ByteString)
 nvvmReflectPass_bc = (name,) . unsafePerformIO $ do
   withContext $ \ctx -> do
-    runError  $ withModuleFromAST ctx nvvmReflectPass_mdl (return . B8.pack <=< moduleLLVMAssembly)
+    withModuleFromAST ctx nvvmReflectPass_mdl (return . B8.pack <=< moduleLLVMAssembly)
   where
     name     = "__nvvm_reflect"
-    runError = either ($internalError "nvvmReflectPass") return <=< runExceptT
+    --runError = either ($internalError "nvvmReflectPass") return <=< runExceptT
 
 
 -- libdevice
@@ -199,8 +199,7 @@ libdeviceModule arch = do
   --      executed once per program execution.
   --
   withContext $ \ctx ->
-    either ($internalError "libdeviceModule") id `fmap`
-    runExceptT (withModuleFromBitcode ctx bc moduleAST)
+    withModuleFromBitcode ctx bc moduleAST
 
 
 -- Load the libdevice bitcode file for the given compute architecture. The name

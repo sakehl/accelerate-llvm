@@ -99,15 +99,15 @@ ptxDataLayout :: DataLayout
 ptxDataLayout = DataLayout
   { endianness          = LittleEndian
   , mangling            = Nothing
-  , aggregateLayout     = AlignmentInfo 0 (Just 64)
+  , aggregateLayout     = AlignmentInfo 0 64
   , stackAlignment      = Nothing
   , pointerLayouts      = Map.fromList
-      [ (AddrSpace 0, (wordSize, AlignmentInfo wordSize (Just wordSize))) ]
+      [ (AddrSpace 0, (wordSize, AlignmentInfo wordSize wordSize)) ]
   , typeLayouts         = Map.fromList $
-      [ ((IntegerAlign, 1), AlignmentInfo 8 (Just 8)) ] ++
-      [ ((IntegerAlign, i), AlignmentInfo i (Just i)) | i <- [8,16,32,64]] ++
-      [ ((VectorAlign,  v), AlignmentInfo v (Just v)) | v <- [16,32,64,128]] ++
-      [ ((FloatAlign,   f), AlignmentInfo f (Just f)) | f <- [32,64] ]
+      [ ((IntegerAlign, 1), AlignmentInfo 8 8) ] ++
+      [ ((IntegerAlign, i), AlignmentInfo i i) | i <- [8,16,32,64]] ++
+      [ ((VectorAlign,  v), AlignmentInfo v v) | v <- [16,32,64,128]] ++
+      [ ((FloatAlign,   f), AlignmentInfo f f) | f <- [32,64] ]
   , nativeSizes         = Just $ Set.fromList [ 16,32,64 ]
   }
   where
@@ -172,5 +172,6 @@ ptxISAVersion _ _ = CPUFeature "ptx40"
 ptxTarget :: LLVM.Target
 ptxTarget = unsafePerformIO $ do
   initializeAllTargets
-  either error fst `fmap` runExceptT (lookupTarget Nothing ptxTargetTriple)
+  --either error fst `fmap` runExceptT (lookupTarget Nothing ptxTargetTriple)
+  fst `fmap` lookupTarget Nothing ptxTargetTriple
 
