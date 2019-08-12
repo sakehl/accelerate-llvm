@@ -41,6 +41,8 @@ import Data.Array.Accelerate.LLVM.PTX.Target
 
 -- cuda
 import Foreign.CUDA.Analysis
+import Foreign.CUDA.Path
+import qualified Foreign.CUDA.Driver                                as CUDA
 
 -- standard library
 import Control.Monad.Except
@@ -120,8 +122,8 @@ nvvmReflectPass_bc = (name,) . unsafePerformIO $ do
 -- libdevice
 -- ---------
 
--- Compatible version of libdevice for a given compute capability should be
--- listed here:
+-- Compatible version of libdevice for a given compute capability should belibdevice ::
+-- listed here:libdevice ::
 --
 --   https://github.com/llvm-mirror/llvm/blob/master/lib/Target/NVPTX/NVPTX.td#L72
 --
@@ -129,6 +131,10 @@ class Libdevice a where
   libdevice :: Compute -> a
 
 instance Libdevice AST.Module where
+  libdevice _
+    | CUDA.libraryVersion >= 9000
+    = libdevice_50_mdl
+  --
   libdevice (Compute n m) =
     case (n,m) of
       (2,_)             -> libdevice_20_mdl   -- 2.0, 2.1
@@ -139,6 +145,10 @@ instance Libdevice AST.Module where
       _                 -> $internalError "libdevice" "no binary for this architecture"
 
 instance Libdevice (String, ByteString) where
+  libdevice _
+    | CUDA.libraryVersion >= 9000
+    = libdevice_50_bc
+  --
   libdevice (Compute n m) =
     case (n,m) of
       (2,_)             -> libdevice_20_bc    -- 2.0, 2.1
@@ -213,14 +223,15 @@ libdeviceModule arch = do
 --
 libdeviceBitcode :: Compute -> IO (String, ByteString)
 libdeviceBitcode (Compute m n) = do
-  let arch       = printf "libdevice.compute_%d%d" m n
+  let arch       | CUDA.libraryVersion < 9000 = printf "libdevice.compute_%d%d" m n
+                 | otherwise                  = "libdevice"
       err        = $internalError "libdevice" (printf "not found: %s.YY.bc" arch)
       best f     = arch `isPrefixOf` f && takeExtension f == ".bc"
+      base       = cudaInstallPath </> "nvvm" </> "libdevice"
 
-  path  <- libdevicePath
-  files <- getDirectoryContents path
+  files <- getDirectoryContents base
   name  <- maybe err return . listToMaybe . sortBy (flip compare) $ filter best files
-  bc    <- B.readFile (path </> name)
+  bc    <- B.readFile (base </> name)
 
   return (name, bc)
 
@@ -229,14 +240,14 @@ libdeviceBitcode (Compute m n) = do
 -- location of the 'nvcc' executable in the PATH. From that, we assume the
 -- location of the libdevice bitcode files.
 --
-libdevicePath :: IO FilePath
-libdevicePath = do
-  nvcc  <- fromMaybe (error "could not find 'nvcc' in PATH") `fmap` findExecutable "nvcc"
+-- libdevicePath :: IO FilePath
+-- libdevicePath = do
+--   nvcc  <- fromMaybe (error "could not find 'nvcc' in PATH") `fmap` findExecutable "nvcc"
 
-  let ccvn = reverse (splitPath nvcc)
-      dir  = "libdevice" : "nvvm" : drop 2 ccvn
+--   let ccvn = reverse (splitPath nvcc)
+--       dir  = "libdevice" : "nvvm" : drop 2 ccvn
 
-  return (joinPath (reverse dir))
+--   return (joinPath (reverse dir))
 
 
 instance Intrinsic PTX where
