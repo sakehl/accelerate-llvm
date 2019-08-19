@@ -564,7 +564,8 @@ executeOpenSeq mi _ma i s aenv stream
                 -> LLVM arch (arrs, Int)
     executeSeq' prods s = do
       index             <- executeExp (initialIndex (Const mi)) Aempty stream
-      ~(ext, Just aenv') <- evalSources (indexSize index) prods
+      ~(ext, Just aenv',remains) <- evalSources (indexSize index) prods
+      let remains' = fromMaybe 0 remains
       case s of
         Producer (Pull src) s -> executeSeq' (PushEnv prods (Pull src)) s
         Producer (ProduceAccum l f a) (Consumer (Last a' d)) -> (first last <$>) $
@@ -577,6 +578,7 @@ executeOpenSeq mi _ma i s aenv stream
             <*> pure (\aenv' -> executeOpenAcc a' aenv' stream)
             <*> pure ext
             <*> pure (Just aenv')
+            <*> pure remains'
         Producer (ProduceAccum l f a) (Reify ty a') -> (first (concatMap (divide ty)) <$>) $
           join $ go i
             <$> pure (chunked index)
@@ -587,6 +589,7 @@ executeOpenSeq mi _ma i s aenv stream
             <*> pure (\aenv' -> executeOpenAcc a' aenv' stream)
             <*> pure ext
             <*> pure (Just aenv')
+            <*> pure remains'
         _ -> $internalError "executeOpenSeq" "Sequence computation does not appear to be delayed"
       where
         go :: forall arrs a b. Arrays arrs
@@ -599,10 +602,11 @@ executeOpenSeq mi _ma i s aenv stream
            -> (AvalR arch (aenv', a) -> LLVM arch arrs)
            -> Extend (Producer (Int,Int) (ExecOpenAcc arch)) aenv aenv'
            -> Maybe (AvalR arch aenv')
+           -> Int
            -> LLVM arch ([arrs], Int)
-        go (Just 0) sched _ _ _ a _      _   _            = return (a, snd (index sched))
-        go _        sched _ _ _ a _      _   Nothing      = return (a, snd (index sched))
-        go i        sched l f s a unwrap ext (Just aenv') = do
+        go (Just 0) sched _ _ _ a _      _   _            _       = return (a, snd (index sched))
+        go _        sched _ _ _ a _      _   Nothing      _       = return (a, snd (index sched))
+        go i        sched l f s a unwrap ext (Just aenv') remains = do
           index' <- async (\_ -> newRemote Z (const (index sched)))
           if maybe True (contains' (index sched)) l
               then do
@@ -614,27 +618,37 @@ executeOpenSeq mi _ma i s aenv stream
                 a''           <- unwrap (Apush aenv' (AsyncR event a'))
                 a'''          <- useLocal a''
                 (rest, sz)    <- unsafeInterleave $ do
-                  let sched' = nextChunked sched t
-                  (ext', maenv) <- evalSources (indexSize (index sched')) ext
-                  go (subtract 1 <$> i) sched' l f (AsyncR event s') [] unwrap ext' maenv
+                  let sched' = capSched remains $ nextChunked sched t
+                  (ext', maenv, remains') <- evalSources (indexSize (index sched')) ext
+                  let remains'' = fromMaybe 0 remains'
+                  go (subtract 1 <$> i) sched' l f (AsyncR event s') [] unwrap ext' maenv remains''
                 return (a''' : rest, sz)
               else
                 return (a, snd (index sched))
 
     evalSources :: Int
                 -> Extend (Producer (Int,Int) (ExecOpenAcc arch)) aenv aenv'
-                -> LLVM arch (Extend (Producer (Int,Int) (ExecOpenAcc arch)) aenv aenv', Maybe (AvalR arch aenv'))
+                -> LLVM arch (Extend (Producer (Int,Int) (ExecOpenAcc arch)) aenv aenv', Maybe (AvalR arch aenv'), Maybe Int)
     evalSources n (PushEnv ext (Pull (Function f a))) = do
-      (ext', aenv) <- evalSources n ext
-      let (stop,b,a')  = f n a
+      (ext', aenv, remains') <- evalSources n ext
+      let (stop,b,a',remains)  = f n a
           ext''        = PushEnv ext' (Pull (Function f a'))
       b' <- useRemoteAsync b stream
       let aenv'        = if not stop then Apush <$> aenv <*> pure b' else Nothing
-      return (ext'', aenv')
+          remains'' = maybe (Just remains) (\r -> Just $ min remains r) remains')
+      return (ext'', aenv', remains'')
     evalSources _ BaseEnv
       = return (BaseEnv, Just aenv)
     evalSources _ _
       = $internalError "evalSeq" "AST is at wrong stage"
+
+    capSched :: Int -> Schedule (Int, Int) -> Schedule (Int, Int)
+    capSched max s = let
+        (total, newn) = index s
+        newindex      = (total - newn + max, max)
+        news          = s{index = newindex}
+      in if newn > max then news else s 
+      
 
 executeOpenSeq _ _ _ _ _ _ =  $internalError "executeOpenSeq"
                                              "Sequence computations must be vectorised"
