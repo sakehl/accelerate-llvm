@@ -565,7 +565,6 @@ executeOpenSeq mi _ma i s aenv stream
     executeSeq' prods s = do
       index             <- executeExp (initialIndex (Const mi)) Aempty stream
       ~(ext, Just aenv',remains) <- evalSources (indexSize index) prods
-      let remains' = fromMaybe 0 remains
       case s of
         Producer (Pull src) s -> executeSeq' (PushEnv prods (Pull src)) s
         Producer (ProduceAccum l f a) (Consumer (Last a' d)) -> (first last <$>) $
@@ -578,7 +577,7 @@ executeOpenSeq mi _ma i s aenv stream
             <*> pure (\aenv' -> executeOpenAcc a' aenv' stream)
             <*> pure ext
             <*> pure (Just aenv')
-            <*> pure remains'
+            <*> pure remains
         Producer (ProduceAccum l f a) (Reify ty a') -> (first (concatMap (divide ty)) <$>) $
           join $ go i
             <$> pure (chunked index)
@@ -589,7 +588,7 @@ executeOpenSeq mi _ma i s aenv stream
             <*> pure (\aenv' -> executeOpenAcc a' aenv' stream)
             <*> pure ext
             <*> pure (Just aenv')
-            <*> pure remains'
+            <*> pure remains
         _ -> $internalError "executeOpenSeq" "Sequence computation does not appear to be delayed"
       where
         go :: forall arrs a b. Arrays arrs
@@ -602,7 +601,7 @@ executeOpenSeq mi _ma i s aenv stream
            -> (AvalR arch (aenv', a) -> LLVM arch arrs)
            -> Extend (Producer (Int,Int) (ExecOpenAcc arch)) aenv aenv'
            -> Maybe (AvalR arch aenv')
-           -> Int
+           -> Maybe Int
            -> LLVM arch ([arrs], Int)
         go (Just 0) sched _ _ _ a _      _   _            _       = return (a, snd (index sched))
         go _        sched _ _ _ a _      _   Nothing      _       = return (a, snd (index sched))
@@ -620,8 +619,7 @@ executeOpenSeq mi _ma i s aenv stream
                 (rest, sz)    <- unsafeInterleave $ do
                   let sched' = capSched remains $ nextChunked sched t
                   (ext', maenv, remains') <- evalSources (indexSize (index sched')) ext
-                  let remains'' = fromMaybe 0 remains'
-                  go (subtract 1 <$> i) sched' l f (AsyncR event s') [] unwrap ext' maenv remains''
+                  go (subtract 1 <$> i) sched' l f (AsyncR event s') [] unwrap ext' maenv remains'
                 return (a''' : rest, sz)
               else
                 return (a, snd (index sched))
@@ -642,8 +640,9 @@ executeOpenSeq mi _ma i s aenv stream
     evalSources _ _
       = $internalError "evalSeq" "AST is at wrong stage"
 
-    capSched :: Int -> Schedule (Int, Int) -> Schedule (Int, Int)
-    capSched max s = let
+    capSched :: Maybe Int -> Schedule (Int, Int) -> Schedule (Int, Int)
+    capSched Nothing s = s
+    capSched (Just max) s = let
         (total, newn) = index s
         newindex      = (total, max)
         news          = s{index = newindex}
