@@ -635,17 +635,17 @@ executeOpenSeq mi _ma i s aenv stream
           ext''        = PushEnv ext' (Pull (Function f a'))
       b' <- useRemoteAsync b stream
       let aenv'        = if not stop then Apush <$> aenv <*> pure b' else Nothing
-          remains'' = maybe (Just remains) (\r -> Just $ min remains r) remains')
+          remains'' = maybe (Just remains) (\r -> Just $ min remains r) remains'
       return (ext'', aenv', remains'')
     evalSources _ BaseEnv
-      = return (BaseEnv, Just aenv)
+      = return (BaseEnv, Just aenv, Nothing)
     evalSources _ _
       = $internalError "evalSeq" "AST is at wrong stage"
 
     capSched :: Int -> Schedule (Int, Int) -> Schedule (Int, Int)
     capSched max s = let
         (total, newn) = index s
-        newindex      = (total - newn + max, max)
+        newindex      = (total, max)
         news          = s{index = newindex}
       in if newn > max then news else s 
       
