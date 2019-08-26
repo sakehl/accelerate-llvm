@@ -174,6 +174,7 @@ compileOpenAcc = traverseAcc
 
         -- Foreign
         Aforeign ff afun a      -> foreignA ff afun a
+        LiftedAFun f lf a       -> liftedAfun f a
 
         -- Array injection
         Unit e                  -> node =<< liftA  Unit         <$> travE e
@@ -304,6 +305,16 @@ compileOpenAcc = traverseAcc
               absurd :: Idx () t -> Idx aenv t
               absurd = absurd
               err    = $internalError "compile" "attempt to use fallback in foreign function"
+
+        liftedAfun :: (Arrays a, Arrays b)
+                 -> DelayedAfun (a -> b)
+                 -> DelayedOpenAcc aenv a
+                 -> LLVM arch (ExecOpenAcc arch aenv b)
+        liftedAfun f a =
+          traverseAcc $ Manifest (Apply (weaken absurd f) a)
+            where
+              absurd :: Idx () t -> Idx aenv t
+              absurd = absurd
 
         -- sadness
         noKernel  = $internalError "compile" "no kernel module for this node"

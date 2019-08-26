@@ -302,6 +302,8 @@ executeOpenAcc (ExecAcc kernel gamma pacc) aenv stream =
 
     -- Foreign function
     Aforeign asm _ a            -> foreignA asm =<< travA a
+    -- Should already have been removed
+    LiftedAFun f _ a           -> $internalError "LiftedAFun" "lifted function not stripped" --flip (executeAfun1 f) stream =<< async (executeOpenAcc a aenv)
 
     -- Producers
     Map _ a                     -> map kernel gamma aenv stream         =<< extent a
