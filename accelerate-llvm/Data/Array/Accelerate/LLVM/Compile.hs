@@ -307,7 +307,7 @@ compileOpenAcc = traverseAcc
               err    = $internalError "compile" "attempt to use fallback in foreign function"
 
         liftedAfun :: (Arrays a, Arrays b)
-                 -> DelayedAfun (a -> b)
+                 => DelayedAfun (a -> b)
                  -> DelayedOpenAcc aenv a
                  -> LLVM arch (ExecOpenAcc arch aenv b)
         liftedAfun f a =
