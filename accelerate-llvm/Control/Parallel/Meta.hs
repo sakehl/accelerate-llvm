@@ -31,6 +31,7 @@ import Data.Semigroup                                               ( Semigroup(
 import Data.Sequence                                            ( Seq )
 import Data.Range.Range                                         as R
 import qualified Data.Vector                                    as V
+import Data.ByteString.Short                                    ( ShortByteString )
 
 import GHC.Base                                                 ( quotInt, remInt )
 
@@ -129,10 +130,10 @@ type Action = Int -> Int -> Int -> IO ()
 --
 data Executable = Executable {
     runExecutable
-        :: String       -- Function name
-        -> Int          -- Profitable parallelism threshold (PPT)
-        -> Range        -- The range to execute over
-        -> Action       -- The main function to execute
+        :: ShortByteString -- Function name
+        -> Int             -- Profitable parallelism threshold (PPT)
+        -> Range           -- The range to execute over
+        -> Action          -- The main function to execute
         -> IO ()
   }
 

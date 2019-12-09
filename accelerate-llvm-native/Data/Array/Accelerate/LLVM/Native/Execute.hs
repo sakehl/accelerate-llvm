@@ -56,6 +56,7 @@ import qualified Prelude                                            as P
 import Foreign.C
 import Foreign.LibFFI                                               ( Arg )
 import Foreign.Ptr
+import Data.ByteString.Short                                        ( ShortByteString )
 
 
 -- Array expression evaluation
@@ -117,7 +118,7 @@ simpleOp NativeR{..} gamma aenv () sh = do
 
 simpleNamed
     :: (Shape sh, Elt e)
-    => String
+    => ShortByteString
     -> ExecutableR Native
     -> Gamma aenv
     -> Aval aenv
@@ -487,7 +488,7 @@ executeOp
     :: Marshalable args
     => Int
     -> Executable
-    -> (String, [Arg] -> IO ())
+    -> (ShortByteString, [Arg] -> IO ())
     -> Gamma aenv
     -> Aval aenv
     -> Range

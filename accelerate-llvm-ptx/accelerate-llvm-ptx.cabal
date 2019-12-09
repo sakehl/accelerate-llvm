@@ -94,7 +94,7 @@ Library
           base                          >= 4.7 && < 4.10
         , accelerate                    == 2.0.*
         , accelerate-llvm               == 2.0.*
-        , bytestring                    >= 0.9
+        , bytestring                    >= 0.10.4
         , containers                    >= 0.5 && <0.6
         , cuda                          >= 0.7
         , directory                     >= 1.0

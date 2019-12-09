@@ -40,11 +40,14 @@ import Foreign.CUDA.Analysis
 -- standard library
 import Control.Monad.Except
 import Data.ByteString                                              ( ByteString )
+import Data.ByteString.Short.Char8                                  ( ShortByteString )
 import Data.HashSet                                                 ( HashSet )
 import Data.List
 import Data.Maybe
 import Text.Printf
 import qualified Data.HashSet                                       as Set
+import qualified Data.ByteString.Short.Char8                        as S8
+import qualified Data.ByteString.Short.Extra                        as BS
 
 
 -- | Lower an LLVM AST to C++ objects and link it against the libdevice module,
@@ -98,7 +101,9 @@ withLibdeviceNVPTX dev ctx ast next =
     arch        = computeCapability dev
 
     msg         = printf "cc: linking with libdevice: %s"
-                $ intercalate ", " (Set.toList externs)
+                $ intercalate ", " 
+                $ map S8.unpack
+                $ Set.toList externs
 
 
 -- | Link LLVM modules by copying parts of the second argument into the first.
@@ -140,7 +145,9 @@ withLibdeviceNVVM dev ctx ast next =
     arch        = computeCapability dev
 
     msg         = printf "cc: linking with libdevice: %s"
-                $ intercalate ", " (Set.toList externs)
+                $ intercalate ", "
+                $ map S8.unpack
+                $ Set.toList externs
 
 
 -- | Analyse the LLVM AST module and determine if any of the external
@@ -148,12 +155,12 @@ withLibdeviceNVVM dev ctx ast next =
 -- functions is returned, and will be used when determining which functions from
 -- libdevice to internalise.
 --
-analyse :: Module -> HashSet String
+analyse :: Module -> HashSet ShortByteString
 analyse Module{..} =
   let intrinsic (GlobalDefinition Function{..})
         | null basicBlocks
         , Name n        <- name
-        , "__nv_"       <- take 5 n
+        , "__nv_"       <- BS.take 5 n
         = Just n
 
       intrinsic _
@@ -166,7 +173,7 @@ analyse Module{..} =
 -- unused definitions can be removed as dead code. Be careful to leave any
 -- declarations as external.
 --
-internalise :: HashSet String -> Module -> Module
+internalise :: HashSet ShortByteString -> Module -> Module
 internalise externals Module{..} =
   let internal (GlobalDefinition Function{..})
         | Name n <- name

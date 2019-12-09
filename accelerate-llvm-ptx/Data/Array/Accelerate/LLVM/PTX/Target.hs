@@ -2,6 +2,7 @@
 {-# LANGUAGE EmptyDataDecls  #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.PTX.Target
 -- Copyright   : [2014..2015] Trevor L. McDonell
@@ -47,6 +48,8 @@ import qualified Foreign.CUDA.Driver                                as CUDA
 import Control.Monad.Except
 import System.IO.Unsafe
 import Text.Printf
+import Data.String
+import Data.ByteString.Short                                        ( ShortByteString )
 import qualified Data.Map                                           as Map
 import qualified Data.Set                                           as Set
 
@@ -116,7 +119,7 @@ ptxDataLayout = DataLayout
 
 -- | String that describes the target host.
 --
-ptxTargetTriple :: String
+ptxTargetTriple :: ShortByteString
 ptxTargetTriple =
   case bitSize (undefined::Int) of
     32  -> "nvptx-nvidia-cuda"
@@ -133,7 +136,7 @@ withPTXTargetMachine
 withPTXTargetMachine dev go =
   let CUDA.Compute m n = CUDA.computeCapability dev
       isa              = ptxISAVersion m n
-      sm               = printf "sm_%d%d" m n
+      sm               = fromString $ printf "sm_%d%d" m n
   in
   withTargetOptions $ \options -> do
     withTargetMachine

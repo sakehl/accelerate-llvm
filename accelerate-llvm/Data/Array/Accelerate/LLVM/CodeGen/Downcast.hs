@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
@@ -46,17 +47,21 @@ import LLVM.AST.Type.Terminator
 import qualified LLVM.AST.Type.Instruction.RMW                      as RMW
 
 import qualified LLVM.AST.Attribute                                 as L
+import qualified LLVM.AST.Attribute                                 as LAttr
 import qualified LLVM.AST.CallingConvention                         as L
 import qualified LLVM.AST.Constant                                  as LC
 import qualified LLVM.AST.Float                                     as L
 import qualified LLVM.AST.FloatingPointPredicate                    as FP
 import qualified LLVM.AST.Global                                    as L
+import qualified LLVM.AST.Global                                    as LGlobal
 import qualified LLVM.AST.Instruction                               as L
 import qualified LLVM.AST.IntegerPredicate                          as IP
 import qualified LLVM.AST.Name                                      as L
 import qualified LLVM.AST.Operand                                   as L
+import qualified LLVM.AST.Operand                                   as LOperand
 import qualified LLVM.AST.RMWOperation                              as LA
 import qualified LLVM.AST.Type                                      as L
+import qualified LLVM.AST.Type                                      as LType
 
 
 -- | Convert a value from our representation of the LLVM AST which uses
@@ -92,7 +97,19 @@ nuw :: Bool
 nuw = False
 
 fmf :: FastMathFlags
-fmf = UnsafeAlgebra
+#if MIN_VERSION_llvm_hs_pure(6,0,0)
+fmf = L.FastMathFlags
+        { L.allowReassoc    = True
+        , L.noNaNs          = True
+        , L.noInfs          = True
+        , L.noSignedZeros   = True
+        , L.allowReciprocal = True
+        , L.allowContract   = True
+        , L.approxFunc      = True
+        }
+#else
+fmf = L.UnsafeAlgebra -- allow everything
+#endif
 
 md :: L.InstructionMetadata
 md = []
@@ -222,7 +239,7 @@ instance Downcast Volatility Bool where
 
 instance Downcast Synchronisation L.SynchronizationScope where
   downcast SingleThread = L.SingleThread
-  downcast CrossThread  = L.CrossThread
+  downcast CrossThread  = L.System
 
 instance Downcast MemoryOrdering L.MemoryOrdering where
   downcast Unordered              = L.Unordered
@@ -307,10 +324,12 @@ instance Downcast Metadata L.Metadata where
   downcast (MetadataNodeOperand n)   = L.MDNode (downcast n)
   downcast (MetadataOperand o)       = L.MDValue (downcast o)
 
-instance Downcast MetadataNode L.MetadataNode where
-  downcast (MetadataNode n)          = L.MetadataNode (downcast n)
-  downcast (MetadataNodeReference r) = L.MetadataNodeReference r
+instance Downcast MetadataNode (L.MDRef L.MDNode) where
+  downcast (MetadataNode n)          = L.MDInline (downcast n)
+  downcast (MetadataNodeReference r) = L.MDRef r
 
+instance Downcast [Maybe Metadata] L.MDNode where
+  downcast = L.MDTuple . map downcast
 
 -- LLVM.General.AST.Type.Terminator
 -- --------------------------------
@@ -369,13 +388,13 @@ instance Downcast (GlobalFunction args t) L.Global where
           (args, result, name)  = trav f
           params                = [ L.Parameter t (L.UnName i) [] | t <- args | i <- [0..] ]
       in
-      L.functionDefaults { L.name       = name
+      L.functionDefaults { LGlobal.name       = name
                          , L.returnType = result
                          , L.parameters = (params,False)
                          }
 
 instance Downcast FunctionAttribute L.FunctionAttribute where
-  downcast NoReturn     = L.NoReturn
+  downcast NoReturn     = LAttr.NoReturn
   downcast NoUnwind     = L.NoUnwind
   downcast ReadOnly     = L.ReadOnly
   downcast ReadNone     = L.ReadNone
@@ -395,7 +414,7 @@ instance Downcast (Type a) L.Type where
 
 instance Downcast (PrimType a) L.Type where
   downcast (ScalarPrimType t) = downcast t
-  downcast (PtrPrimType t a)  = L.PointerType (downcast t) a
+  downcast (PtrPrimType t a)  = LType.PointerType (downcast t) a
   downcast (ArrayType n t)    = L.ArrayType n (downcast t)
   downcast (TupleType t)      = L.StructureType False (go t)
     where
@@ -440,10 +459,10 @@ instance Downcast (IntegralType a) L.Type where
   downcast (TypeCULLong _) = L.IntegerType 64
 
 instance Downcast (FloatingType a) L.Type where
-  downcast (TypeFloat   _) = L.FloatingPointType 32 L.IEEE
-  downcast (TypeDouble  _) = L.FloatingPointType 64 L.IEEE
-  downcast (TypeCFloat  _) = L.FloatingPointType 32 L.IEEE
-  downcast (TypeCDouble _) = L.FloatingPointType 64 L.IEEE
+  downcast TypeFloat{}   = L.FloatingPointType L.FloatFP
+  downcast TypeDouble{}  = L.FloatingPointType L.DoubleFP
+  downcast TypeCFloat{}  = L.FloatingPointType L.FloatFP
+  downcast TypeCDouble{} = L.FloatingPointType L.DoubleFP
 
 instance Downcast (NonNumType a) L.Type where
   downcast (TypeBool   _) = L.IntegerType 1

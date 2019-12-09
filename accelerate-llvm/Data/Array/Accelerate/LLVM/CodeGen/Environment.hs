@@ -17,6 +17,8 @@ module Data.Array.Accelerate.LLVM.CodeGen.Environment
 
 import Data.IntMap                                              ( IntMap )
 import qualified Data.IntMap                                    as IM
+import Data.String
+import Text.Printf
 
 import Data.Array.Accelerate.AST                                ( Idx(..), idxToInt )
 import Data.Array.Accelerate.Error                              ( internalError )
@@ -82,7 +84,7 @@ makeGamma :: IntMap (Idx' aenv) -> Gamma aenv
 makeGamma = snd . IM.mapAccum (\n ix -> (n+1, toAval n ix)) 0
   where
     toAval :: Int -> Idx' aenv -> (Label, Idx' aenv)
-    toAval n ix = (Label ("fv" ++ show n), ix)
+    toAval n ix = (fromString (printf "fv%d" n), ix)
 
 -- | A free variable
 --

@@ -1,4 +1,5 @@
 {-# OPTIONS_HADDOCK hide #-}
+{-# LANGUAGE OverloadedStrings   #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.CodeGen.Intrinsic
 -- Copyright   : [2015] Trevor L. McDonell
@@ -21,6 +22,7 @@ import LLVM.AST.Type.Name
 -- libraries
 import Data.HashMap.Strict                                      ( HashMap )
 import qualified Data.HashMap.Strict                            as HashMap
+import Data.ByteString.Short                                    ( ShortByteString )
 
 
 -- | During code generation we need to know the name of functions implementing
@@ -35,16 +37,16 @@ import qualified Data.HashMap.Strict                            as HashMap
 --   sqrt       -> llvm.sqrt.f64
 --
 class Intrinsic arch where
-  intrinsicForTarget :: arch -> HashMap String Label
+  intrinsicForTarget :: arch -> HashMap ShortByteString Label
   intrinsicForTarget _ = llvmIntrinsic
 
 
-llvmIntrinsic :: HashMap String Label
+llvmIntrinsic :: HashMap ShortByteString Label
 llvmIntrinsic =
   let floating base rest
-          = (base,        Label ("llvm." ++ base ++ ".f64"))
-          : (base ++ "f", Label ("llvm." ++ base ++ ".f32"))
-          : (base ++ "l", Label ("llvm." ++ base ++ ".f128"))
+          = (base,        Label ("llvm." <> base <> ".f64"))
+          : (base <> "f", Label ("llvm." <> base <> ".f32"))
+          : (base <> "l", Label ("llvm." <> base <> ".f128"))
           : rest
   in
   HashMap.fromList $ foldr floating []

@@ -41,6 +41,9 @@ module Data.Array.Accelerate.LLVM.CodeGen.Monad (
 -- standard library
 import Control.Applicative
 import Control.Monad.State.Strict
+import Data.String
+import Data.ByteString.Short                                            ( ShortByteString )
+import qualified Data.ByteString.Short                                  as B
 import Data.Function
 import Data.HashMap.Strict                                              ( HashMap )
 import Data.Map                                                         ( Map )
@@ -91,8 +94,8 @@ import qualified LLVM.AST.Global                                        as LLVM
 data CodeGenState = CodeGenState
   { blockChain          :: Seq Block                                    -- blocks for this function
   , symbolTable         :: Map Label LLVM.Global                        -- global (external) function declarations
-  , metadataTable       :: HashMap String (Seq [Maybe Metadata])        -- module metadata to be collected
-  , intrinsicTable      :: HashMap String Label                         -- standard math intrinsic functions
+  , metadataTable       :: HashMap ShortByteString (Seq [Maybe Metadata])        -- module metadata to be collected
+  , intrinsicTable      :: HashMap ShortByteString Label                         -- standard math intrinsic functions
   , next                :: {-# UNPACK #-} !Word                         -- a name supply
   }
 
@@ -137,7 +140,7 @@ runLLVM  ll =
   Module { moduleMetadata = md
          , unModule       = LLVM.Module
                           { LLVM.moduleName           = name
-                          , LLVM.moduleSourceFileName = []
+                          , LLVM.moduleSourceFileName = B.empty
                           , LLVM.moduleDataLayout     = targetDataLayout (undefined::arch)
                           , LLVM.moduleTargetTriple   = targetTriple (undefined::arch)
                           , LLVM.moduleDefinitions    = definitions
@@ -187,7 +190,7 @@ newBlock nm =
   state $ \s ->
     let idx     = Seq.length (blockChain s)
         label   = let (h,t) = break (== '.') nm in (h ++ shows idx t)
-        next    = Block (Label label) Seq.empty err
+        next    = Block (Label $ fromString label) Seq.empty err
         err     = $internalError label "Block has no terminator"
     in
     ( next, s )
@@ -361,7 +364,7 @@ declare g =
 
       name = case LLVM.name g of
                LLVM.Name n      -> Label n
-               LLVM.UnName n    -> Label (show n)
+               LLVM.UnName n    -> Label $ fromString $ show n
   in
   modify (\s -> s { symbolTable = Map.alter unique name (symbolTable s) })
 
@@ -369,7 +372,7 @@ declare g =
 -- | Get name of the corresponding intrinsic function implementing a given C
 -- function. If there is no mapping, the C function name is used.
 --
-intrinsic :: String -> CodeGen Label
+intrinsic :: ShortByteString -> CodeGen Label
 intrinsic key =
   state $ \s ->
     let name = HashMap.lookupDefault (Label key) key (intrinsicTable s)
@@ -382,7 +385,7 @@ intrinsic key =
 
 -- | Insert a metadata key/value pair into the current module.
 --
-addMetadata :: String -> [Maybe Metadata] -> CodeGen ()
+addMetadata :: ShortByteString -> [Maybe Metadata] -> CodeGen ()
 addMetadata key val =
   modify $ \s ->
     s { metadataTable = HashMap.insertWith (flip (Seq.><)) key (Seq.singleton val) (metadataTable s) }
@@ -393,10 +396,10 @@ addMetadata key val =
 -- represent the metadata node definitions that will be attached to that
 -- definition.
 --
-createMetadata :: HashMap String (Seq [Maybe Metadata]) -> [LLVM.Definition]
+createMetadata :: HashMap ShortByteString (Seq [Maybe Metadata]) -> [LLVM.Definition]
 createMetadata md = build (HashMap.toList md) (Seq.empty, Seq.empty)
   where
-    build :: [(String, Seq [Maybe Metadata])]
+    build :: [(ShortByteString, Seq [Maybe Metadata])]
           -> (Seq LLVM.Definition, Seq LLVM.Definition) -- accumulator of (names, metadata)
           -> [LLVM.Definition]
     build []     (k,d) = F.toList (k Seq.>< d)
@@ -405,7 +408,7 @@ createMetadata md = build (HashMap.toList md) (Seq.empty, Seq.empty)
       in  build xs (k Seq.|> k', d Seq.>< d')
 
     meta :: Int                                         -- number of metadata node definitions so far
-         -> (String, Seq [Maybe Metadata])              -- current assoc of the metadata map
+         -> (ShortByteString, Seq [Maybe Metadata])              -- current assoc of the metadata map
          -> (LLVM.Definition, Seq LLVM.Definition)
     meta n (key, vals)
       = let node i      = LLVM.MetadataNodeID (fromIntegral (i+n))

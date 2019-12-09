@@ -32,6 +32,8 @@ import Control.Parallel.Meta                                        ( Executable
 -- standard library
 import Control.Monad.Except
 import System.IO.Unsafe
+import Data.String
+import Data.ByteString.Short                                        ( ShortByteString )
 
 
 -- | Native machine code JIT execution target
@@ -50,7 +52,7 @@ instance Target Native where
 -- | String that describes the native target
 --
 {-# NOINLINE nativeTargetTriple #-}
-nativeTargetTriple :: String
+nativeTargetTriple :: ShortByteString
 nativeTargetTriple = unsafePerformIO $
     -- A target triple suitable for loading code into the current process
     getProcessTargetTriple
@@ -71,5 +73,5 @@ nativeDataLayout
 withNativeTargetMachine
     :: (TargetMachine -> IO a)
     -> IO a
-withNativeTargetMachine = withHostTargetMachine
+withNativeTargetMachine = withHostTargetMachineDefault
 

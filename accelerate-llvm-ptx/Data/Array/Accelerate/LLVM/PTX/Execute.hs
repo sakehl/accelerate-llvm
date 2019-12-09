@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
@@ -44,6 +45,7 @@ import Data.Array.Accelerate.LLVM.PTX.Target
 import qualified Data.Array.Accelerate.LLVM.PTX.Debug           as Debug
 
 import Data.Range.Range                                         ( Range(..) )
+import Data.ByteString.Short                                    ( ShortByteString )
 import Control.Parallel.Meta                                    ( runExecutable )
 
 -- cuda
@@ -122,7 +124,7 @@ simpleOp exe gamma aenv stream sh = do
 
 simpleNamed
     :: (Shape sh, Elt e)
-    => String
+    => ShortByteString
     -> ExecutableR PTX
     -> Gamma aenv
     -> Aval aenv
@@ -130,7 +132,7 @@ simpleNamed
     -> sh
     -> LLVM PTX (Array sh e)
 simpleNamed fun exe gamma aenv stream sh = do
-  let kernel  = fromMaybe ($internalError "simpleNamed" ("not found: " ++ fun))
+  let kernel  = fromMaybe ($internalError "simpleNamed" ("not found: " ++ show fun))
               $ lookupKernel fun exe
   --
   out <- allocateRemote sh
@@ -550,7 +552,7 @@ i32 = fromIntegral
 
 -- | Retrieve the named kernel
 --
-lookupKernel :: String -> ExecutableR PTX -> Maybe Kernel
+lookupKernel :: ShortByteString -> ExecutableR PTX -> Maybe Kernel
 lookupKernel name exe =
   find (\k -> kernelName k == name) (ptxKernel exe)
 
@@ -597,5 +599,5 @@ launch Kernel{..} stream n args =
       Debug.addProcessorTime Debug.PTX gpu
       Debug.traceIO Debug.dump_exec $
         printf "exec: %s <<< %d, %d, %d >>> %s"
-               kernelName (fst3 grid) (fst3 cta) smem (Debug.elapsed wall cpu gpu)
+               (show kernelName) (fst3 grid) (fst3 cta) smem (Debug.elapsed wall cpu gpu)
 

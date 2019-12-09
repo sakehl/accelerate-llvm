@@ -67,6 +67,7 @@ import Control.Monad.State
 import Data.ByteString                                              ( ByteString )
 import Data.List                                                    ( intercalate )
 import Text.Printf                                                  ( printf )
+import Data.ByteString.Short.Char8                                  ( ShortByteString, unpack )
 import qualified Data.ByteString.Char8                              as B
 import qualified Data.ByteString.Short                              as BS
 import qualified Data.Map                                           as Map
@@ -86,7 +87,7 @@ data Kernel = Kernel {
   , kernelSharedMemBytes        :: {-# UNPACK #-} !Int
   , kernelThreadBlockSize       :: {-# UNPACK #-} !Int
   , kernelThreadBlocks          :: (Int -> Int)
-  , kernelName                  :: String
+  , kernelName                  :: {-# UNPACK #-} !ShortByteString
   }
 
 -- | Compile a given module for the NVPTX backend. This produces a CUDA module
@@ -110,7 +111,7 @@ compileForPTX acc aenv = do
     addFinalizer ptx' $ do
       Debug.traceIO Debug.dump_gc
         $ printf "gc: unload module: %s"
-        $ intercalate "," (P.map kernelName funs)
+        $ intercalate "," (P.map (show . kernelName) funs)
       withContext (ptxContext target) (CUDA.unload ptx)
     return $! PTXR funs ptx'
 
@@ -137,7 +138,7 @@ compileModule dev ctx ast =
 -- Compile and optimise the module to PTX using the (closed source) NVVM
 -- library. This may produce faster object code than the LLVM NVPTX compiler.
 --
-compileModuleNVVM :: CUDA.DeviceProperties -> String -> [(String, ByteString)] -> LLVM.Module -> IO CUDA.Module
+compileModuleNVVM :: CUDA.DeviceProperties -> ShortByteString -> [(String, ByteString)] -> LLVM.Module -> IO CUDA.Module
 compileModuleNVVM dev name libdevice mdl = do
   _debug <- Debug.queryFlag Debug.debug_cc
   --
@@ -179,7 +180,7 @@ compileModuleNVVM dev name libdevice mdl = do
 #else
 -- Compiling with the NVPTX backend uses LLVM-3.3 and above
 --
-compileModuleNVPTX :: CUDA.DeviceProperties -> String -> LLVM.Module -> IO CUDA.Module
+compileModuleNVPTX :: CUDA.DeviceProperties -> ShortByteString -> LLVM.Module -> IO CUDA.Module
 compileModuleNVPTX dev name mdl =
   withPTXTargetMachine dev $ \nvptx -> do
 
@@ -197,19 +198,19 @@ compileModuleNVPTX dev name mdl =
       -- debug printout
       Debug.when Debug.dump_cc $ do
         Debug.traceIO Debug.dump_cc $ printf "llvm: optimisation did work? %s" (show b1)
-        Debug.traceIO Debug.verbose =<< LLVM.moduleLLVMAssembly mdl
+        Debug.traceIO Debug.verbose . B.unpack =<< LLVM.moduleLLVMAssembly mdl
 
       -- Lower the LLVM module into target assembly (PTX)
       ptx <- LLVM.moduleTargetAssembly nvptx mdl
 
       -- Link into a new CUDA module in the current context
-      linkPTX name (B.pack ptx)
+      linkPTX name ptx
 #endif
 
 -- | Load the given CUDA PTX into a new module that is linked into the current
 -- context.
 --
-linkPTX :: String -> ByteString -> IO CUDA.Module
+linkPTX :: ShortByteString -> ByteString -> IO CUDA.Module
 linkPTX name ptx = do
   _verbose      <- Debug.queryFlag Debug.verbose
   _debug        <- Debug.queryFlag Debug.debug_cc
@@ -225,7 +226,7 @@ linkPTX name ptx = do
 
   Debug.traceIO Debug.dump_asm $
     printf "ptx: compiled entry function \"%s\" in %s\n%s"
-           name
+           (unpack name)
            (Debug.showFFloatSIBase (Just 2) 1000 (CUDA.jitTime jit / 1000) "s")
            (B.unpack (CUDA.jitInfoLog jit))
 
@@ -239,11 +240,11 @@ linkPTX name ptx = do
 --
 linkFunction
     :: CUDA.Module                      -- the compiled module
-    -> String                           -- __global__ entry function name
+    -> ShortByteString                  -- __global__ entry function name
     -> LaunchConfig                     -- launch configuration for this global function
     -> IO Kernel
 linkFunction mdl name configure = do
-  f     <- CUDA.getFun mdl (BS.toShort $ B.pack name)
+  f     <- CUDA.getFun mdl name
   regs  <- CUDA.requires f CUDA.NumRegs
   ssmem <- CUDA.requires f CUDA.SharedSizeBytes
   cmem  <- CUDA.requires f CUDA.ConstSizeBytes
@@ -255,7 +256,7 @@ linkFunction mdl name configure = do
 
       msg1, msg2 :: String
       msg1 = printf "kernel function '%s' used %d registers, %d bytes smem, %d bytes lmem, %d bytes cmem"
-                      name regs (ssmem + dsmem) lmem cmem
+                      (unpack name) regs (ssmem + dsmem) lmem cmem
 
       msg2 = printf "multiprocessor occupancy %.1f %% : %d threads over %d warps in %d blocks"
                       (CUDA.occupancy100 occ)

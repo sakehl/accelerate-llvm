@@ -19,11 +19,12 @@ module Data.Array.Accelerate.LLVM.Target
 
 -- llvm-hs
 import LLVM.AST.DataLayout                                ( DataLayout )
+import Data.ByteString.Short                              ( ShortByteString )
 
 
 -- | Describes some target specific information needed for code generation
 --
 class Target t where
-  targetTriple          :: t {- dummy -} -> Maybe String
+  targetTriple          :: t {- dummy -} -> Maybe ShortByteString
   targetDataLayout      :: t {- dummy -} -> Maybe DataLayout
 

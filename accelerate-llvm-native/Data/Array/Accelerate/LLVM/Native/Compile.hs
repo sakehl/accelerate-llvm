@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.Native.Compile
@@ -50,6 +51,7 @@ import qualified Data.Array.Accelerate.LLVM.Native.Debug            as Debug
 import Control.Monad.Except                                         ( runExceptT )
 import Control.Monad.State
 import Data.Maybe
+import qualified Data.ByteString.Char8                              as B8
 
 
 instance Compile Native where
@@ -82,8 +84,8 @@ compileForNativeTarget acc aenv = do
         optimiseModule datalayout (Just machine) (Just libinfo) mdl
 
         Debug.when Debug.verbose $ do
-          Debug.traceIO Debug.dump_cc  =<< moduleLLVMAssembly mdl
-          Debug.traceIO Debug.dump_asm =<< moduleTargetAssembly machine mdl
+          Debug.traceIO Debug.dump_cc  . B8.unpack =<< moduleLLVMAssembly mdl
+          Debug.traceIO Debug.dump_asm . B8.unpack =<< moduleTargetAssembly machine mdl
 
         withMCJIT ctx opt model ptrelim fast $ \mcjit -> do
           withModuleInEngine mcjit mdl       $ \exe   -> do
