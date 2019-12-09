@@ -136,9 +136,9 @@ llvmOfOpenExp arch top env aenv = cvtE top
     undefE = IR $ go (eltType (undefined::t))
       where
         go :: TupleType s -> Operands s
-        go TypeRunit       = OP_Unit
-        go (TypeRscalar t) = ir' t (undef t)
-        go (TypeRpair a b) = OP_Pair (go a) (go b)
+        go UnitTuple       = OP_Unit
+        go (SingleTuple t) = ir' t (undef t)
+        go (PairTuple a b) = OP_Pair (go a) (go b)
 
     indexSlice :: SliceIndex (EltRepr slix) (EltRepr sl) co (EltRepr sh)
                -> proxy slix
