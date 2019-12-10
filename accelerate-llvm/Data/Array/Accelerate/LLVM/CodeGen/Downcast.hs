@@ -62,6 +62,7 @@ import qualified LLVM.AST.Operand                                   as LOperand
 import qualified LLVM.AST.RMWOperation                              as LA
 import qualified LLVM.AST.Type                                      as L
 import qualified LLVM.AST.Type                                      as LType
+import qualified LLVM.AST.Type.AddrSpace                            as L
 
 
 -- | Convert a value from our representation of the LLVM AST which uses
@@ -316,13 +317,13 @@ instance Downcast (Operand a) L.Operand where
 -- LLVM.General.AST.Type.Metadata
 -- ------------------------------
 
-instance Downcast Metadata L.Operand where
-  downcast = L.MetadataOperand . downcast
+--instance Downcast Metadata L.Operand where
+--  downcast = L.MetadataOperand . downcast
 
 instance Downcast Metadata L.Metadata where
-  downcast (MetadataStringOperand s) = L.MDString s
-  downcast (MetadataNodeOperand n)   = L.MDNode (downcast n)
-  downcast (MetadataOperand o)       = L.MDValue (downcast o)
+  downcast (MetadataStringOperand s)   = L.MDString s
+  downcast (MetadataNodeOperand n)     = L.MDNode (downcast n)
+  downcast (MetadataConstantOperand o) = L.MDValue (L.ConstantOperand o)
 
 instance Downcast MetadataNode (L.MDRef L.MDNode) where
   downcast (MetadataNode n)          = L.MDInline (downcast n)
@@ -368,7 +369,7 @@ instance Downcast (GlobalFunction args t) L.CallableOperand where
                              in  (downcast t : t', r, n)
 
           (args, result, name)  = trav f
-          ty                    = L.FunctionType result args False
+          ty                    = LType.PointerType (L.FunctionType result args False) (L.AddrSpace 0)
       in
       Right (L.ConstantOperand (LC.GlobalReference ty name))
 

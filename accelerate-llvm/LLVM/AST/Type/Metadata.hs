@@ -15,6 +15,7 @@ module LLVM.AST.Type.Metadata
 
 import LLVM.AST.Type.Operand
 import qualified LLVM.AST.Operand                         as LLVM
+import qualified LLVM.AST.Constant                        as LLVM
 import Data.ByteString.Short                              ( ShortByteString )
 
 
@@ -28,6 +29,6 @@ data MetadataNode
 
 data Metadata where
   MetadataStringOperand :: {-# UNPACK #-} !ShortByteString -> Metadata
-  MetadataOperand       :: Operand a -> Metadata
+  MetadataConstantOperand :: !LLVM.Constant -> Metadata
   MetadataNodeOperand   :: MetadataNode -> Metadata
 
