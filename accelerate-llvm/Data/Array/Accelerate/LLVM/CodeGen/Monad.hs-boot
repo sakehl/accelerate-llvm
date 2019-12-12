@@ -11,7 +11,7 @@
 module Data.Array.Accelerate.LLVM.CodeGen.Monad (CodeGen)
   where
 
-import Control.Monad.State
+import Control.Monad.State.Strict
 
 data CodeGenState
 newtype CodeGen a = CodeGen { runCodeGen :: State CodeGenState a }

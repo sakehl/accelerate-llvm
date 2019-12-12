@@ -242,7 +242,7 @@ liftPreOpenExp arch pexp =
     IndexHead sh              -> [|| IndexHead $$(liftE sh) ||]
     IndexTail sh              -> [|| IndexTail $$(liftE sh) ||]
     IndexAny                  -> [|| IndexAny ||]
-    IndexSlice slice slix sh  -> [|| IndexSlice $$(liftSliceIndex slice) $$(liftE slix) $$(liftE sh) ||]
+    -- IndexSlice slice slix sh  -> [|| IndexSlice $$(liftSliceIndex slice) $$(slix) $$(liftE sh) ||]
     IndexFull slice slix sl   -> [|| IndexFull $$(liftSliceIndex slice) $$(liftE slix) $$(liftE sl) ||]
     ToIndex sh ix             -> [|| ToIndex $$(liftE sh) $$(liftE ix) ||]
     FromIndex sh ix           -> [|| FromIndex $$(liftE sh) $$(liftE ix) ||]

@@ -34,9 +34,11 @@ import Data.Array.Accelerate.LLVM.CodeGen.Environment
 import Data.Array.Accelerate.LLVM.Compile
 import Data.Array.Accelerate.LLVM.State
 
+import Data.IORef                                               ( IORef, newIORef )
 import Control.Applicative                                          hiding ( Const )
 import Control.DeepSeq
 import Prelude                                                      hiding ( exp )
+
 
 
 class Link arch where
@@ -62,6 +64,14 @@ data ExecOpenAcc arch aenv a where
   EvalAcc   :: Arrays a
             => PreOpenAccCommand (ExecOpenAcc arch) aenv a
             -> ExecOpenAcc arch aenv a
+  
+  ExecCollectAcc :: SeqIndex index
+                 => IORef (Maybe Int) -- Previously learnt chunk size
+                 -> ExecExp arch aenv Int
+                 -> Maybe (ExecExp arch aenv Int)
+                 -> Maybe (ExecExp arch aenv Int)
+                 -> PreOpenSeq index (ExecOpenAcc arch) aenv a
+                 -> ExecOpenAcc arch aenv a
 
 -- An AST annotated with compiled and linked functions in the target address
 -- space, suitable for execution.
@@ -173,7 +183,8 @@ linkOpenAcc = travA
         IndexCons t h           -> IndexCons          <$> travE t <*> travE h
         IndexHead h             -> IndexHead          <$> travE h
         IndexTail t             -> IndexTail          <$> travE t
-        IndexSlice slix x s     -> (IndexSlice slix)  <$> travE x <*> travE s
+        -- TODO: Index slice proxy
+        -- IndexSlice slix x s     -> (IndexSlice slix undefined)  <$> travE x <*> travE s
         IndexFull slix x s      -> (IndexFull slix)   <$> travE x <*> travE s
         ToIndex s i             -> ToIndex            <$> travE s <*> travE i
         FromIndex s i           -> FromIndex          <$> travE s <*> travE i

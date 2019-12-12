@@ -30,6 +30,7 @@ import Data.Array.Accelerate.Array.Sugar
 
 import Data.Array.Accelerate.LLVM.CodeGen.IR
 import Data.Array.Accelerate.LLVM.CodeGen.Module
+-- import {-# SOURCE #-} Data.Array.Accelerate.LLVM.CodeGen.Monad
 import {-# SOURCE #-} Data.Array.Accelerate.LLVM.CodeGen.Monad
 
 

@@ -21,6 +21,8 @@ module Data.Array.Accelerate.LLVM.AST (
   PreAfun, PreOpenAfun(..),
   PreFun,  PreOpenFun(..),
   PreExp,  PreOpenExp(..),
+  PreOpenSeq(..), SeqIndex(..),
+  Producer(..), Consumer(..), Source(..),
   Idx(..), Val(..), prj,
 
 ) where
@@ -28,7 +30,8 @@ module Data.Array.Accelerate.LLVM.AST (
 import Data.Array.Accelerate.Array.Sugar
 import Data.Array.Accelerate.Product
 import Data.Array.Accelerate.AST
-    ( PreOpenAfun(..), PreOpenExp(..), PreOpenFun(..), Idx(..), Val(..), PreAfun, PreFun, PreExp, prj )
+    ( PreOpenAfun(..), PreOpenExp(..), PreOpenFun(..), PreOpenSeq(..),
+      Producer(..), Consumer(..), Source(..), SeqIndex(..), Idx(..), Val(..), PreAfun, PreFun, PreExp, prj )
 
 
 -- | Non-computational array program operations, parameterised over array
@@ -92,6 +95,13 @@ data PreOpenAccCommand acc aenv a where
   Unzip       :: (Elt tup, Elt e)
               => TupleIdx (TupleRepr tup) e
               -> Idx                   aenv (Array sh tup)
+              -> PreOpenAccCommand acc aenv (Array sh e)
+
+  -- Subarray inlet by strided copy
+  Subarray    :: (Shape sh, Elt e, sh :<= DIM2)
+              => PreExp acc aenv sh                             -- index of subarray
+              -> PreExp acc aenv sh                             -- extent of subarray
+              -> Array sh e
               -> PreOpenAccCommand acc aenv (Array sh e)
 
 
@@ -172,3 +182,7 @@ data PreOpenAccSkeleton acc aenv a where
               -> Idx                    aenv (Array sh b)
               -> PreOpenAccSkeleton acc aenv (Array sh c)
 
+-- data PreOpenAccSkeleton acc aenv a where
+--   Map         :: (Shape sh, Elt e)
+--               => PreExp             acc aenv sh
+--               -> PreOpenAccSkeleton acc aenv (Array sh e)
