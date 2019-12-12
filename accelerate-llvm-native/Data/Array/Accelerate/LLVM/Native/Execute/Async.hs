@@ -22,7 +22,12 @@ module Data.Array.Accelerate.LLVM.Native.Execute.Async (
 import Data.Array.Accelerate.LLVM.Execute.Async                     hiding ( Async )
 import qualified Data.Array.Accelerate.LLVM.Execute.Async           as A
 
+import Data.Array.Accelerate.LLVM.Native.State
 import Data.Array.Accelerate.LLVM.Native.Target
+
+import Control.Monad.Trans
+import Data.Time.Clock
+import System.CPUTime
 
 
 type Async a = A.AsyncR  Native a
@@ -49,4 +54,20 @@ instance A.Async Native where
 
   {-# INLINE block #-}
   block () = return ()
+
+  {-# INLINE timed #-}
+  timed action = do
+    wall0 <- liftIO getCurrentTime
+    cpu0  <- liftIO getCPUTime
+    res   <- action ()
+    wall1 <- liftIO getCurrentTime
+    cpu1  <- liftIO getCPUTime
+    --
+    let wallTime = realToFrac (diffUTCTime wall1 wall0)
+        cpuTime  = fromIntegral (cpu1 - cpu0) * 1E-12
+    --
+    return (wallTime / cpuTime, res)
+
+  {-# INLINE unsafeInterleave #-}
+  unsafeInterleave = unsafeInterleaveNative
 

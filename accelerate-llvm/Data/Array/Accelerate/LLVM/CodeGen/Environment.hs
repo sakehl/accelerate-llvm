@@ -19,6 +19,8 @@ import Data.IntMap                                              ( IntMap )
 import Data.String
 import Text.Printf
 import qualified Data.IntMap                                    as IM
+import Data.String
+import Text.Printf
 
 import Data.Array.Accelerate.AST                                ( Idx(..), idxToInt )
 import Data.Array.Accelerate.Error                              ( internalError )

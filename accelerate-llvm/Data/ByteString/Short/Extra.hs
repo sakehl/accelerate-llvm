@@ -1,12 +1,14 @@
-{-# LANGUAGE BangPatterns  #-}
-{-# LANGUAGE MagicHash     #-}
-{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE BangPatterns    #-}
+{-# LANGUAGE MagicHash       #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnboxedTuples   #-}
+{-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.ByteString.Short.Extra
--- Copyright   : [2017] Trevor L. McDonell
+-- Copyright   : [2017..2019] The Accelerate Team
 -- License     : BSD3
 --
--- Maintainer  : Trevor L. McDonell <tmcdonell@cse.unsw.edu.au>
+-- Maintainer  : Trevor L. McDonell <trevor.mcdonell@gmail.com>
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 --
@@ -22,6 +24,12 @@ module Data.ByteString.Short.Extra (
 import Data.ByteString.Short                                        ( ShortByteString )
 import qualified Data.ByteString.Short                              as BS
 import qualified Data.ByteString.Short.Internal                     as BI
+
+{- import Language.Haskell.TH                                          ( Q, TExp )
+import qualified Language.Haskell.TH                                as TH
+import qualified Language.Haskell.TH.Syntax                         as TH
+-}
+import System.IO.Unsafe
 import Prelude                                                      hiding ( take, takeWhile )
 
 import GHC.ST
@@ -65,6 +73,16 @@ findIndexOrEnd p xs = go 0
           | p (indexWord8Array ba i) = i
           | otherwise                = go (i+1)
 
+{-
+-- | Lift a ShortByteString into a Template Haskell splice
+--
+liftSBS :: ShortByteString -> Q (TExp ShortByteString)
+liftSBS bs =
+  let bytes = BS.unpack bs
+      len   = BS.length bs
+  in
+  [|| unsafePerformIO $ BI.createFromPtr $$( TH.unsafeTExpCoerce [| Ptr $(TH.litE (TH.StringPrimL bytes)) |]) len ||]
+-}
 
 ------------------------------------------------------------------------
 -- Internal utils

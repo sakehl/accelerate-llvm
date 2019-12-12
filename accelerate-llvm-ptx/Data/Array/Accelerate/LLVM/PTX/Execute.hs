@@ -20,8 +20,12 @@
 
 module Data.Array.Accelerate.LLVM.PTX.Execute (
 
+<<<<<<< HEAD
   executeAcc, executeAfun,
   executeOpenAcc,
+=======
+  executeAcc, executeAfun1, executeSeq
+>>>>>>> feature/sequences
 
 ) where
 
@@ -46,6 +50,7 @@ import Data.Array.Accelerate.LLVM.PTX.Target
 import qualified Data.Array.Accelerate.LLVM.PTX.Debug           as Debug
 
 import Data.Range.Range                                         ( Range(..) )
+import Data.ByteString.Short                                    ( ShortByteString )
 import Control.Parallel.Meta                                    ( runExecutable )
 
 -- cuda
@@ -132,7 +137,14 @@ simpleNamed
     -> Stream
     -> sh
     -> LLVM PTX (Array sh e)
+<<<<<<< HEAD
 simpleNamed fun exe gamma aenv stream sh = withExecutable exe $ \ptxExecutable -> do
+=======
+simpleNamed fun exe gamma aenv stream sh = do
+  let kernel  = fromMaybe ($internalError "simpleNamed" ("not found: " ++ show fun))
+              $ lookupKernel fun exe
+  --
+>>>>>>> feature/sequences
   out <- allocateRemote sh
   ptx <- gets llvmTarget
   liftIO $ executeOp ptx (ptxExecutable !# fun) gamma aenv stream (IE 0 (size sh)) out
@@ -539,6 +551,7 @@ i32 = fromIntegral
 
 -- | Retrieve the named kernel
 --
+<<<<<<< HEAD
 (!#) :: FunctionTable -> ShortByteString -> Kernel
 (!#) exe name
   = fromMaybe ($internalError "lookupFunction" ("function not found: " ++ unpack name))
@@ -547,6 +560,11 @@ i32 = fromIntegral
 lookupKernel :: ShortByteString -> FunctionTable -> Maybe Kernel
 lookupKernel name ptxExecutable =
   find (\k -> kernelName k == name) (functionTable ptxExecutable)
+=======
+lookupKernel :: ShortByteString -> ExecutableR PTX -> Maybe Kernel
+lookupKernel name exe =
+  find (\k -> kernelName k == name) (ptxKernel exe)
+>>>>>>> feature/sequences
 
 
 -- Execute the function implementing this kernel.
@@ -591,5 +609,9 @@ launch Kernel{..} stream n args =
       Debug.addProcessorTime Debug.PTX gpu
       Debug.traceIO Debug.dump_exec $
         printf "exec: %s <<< %d, %d, %d >>> %s"
+<<<<<<< HEAD
                (unpack kernelName) (fst3 grid) (fst3 cta) smem (Debug.elapsed wall cpu gpu)
+=======
+               (show kernelName) (fst3 grid) (fst3 cta) smem (Debug.elapsed wall cpu gpu)
+>>>>>>> feature/sequences
 

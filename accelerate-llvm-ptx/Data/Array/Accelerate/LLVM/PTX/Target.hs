@@ -1,8 +1,16 @@
+<<<<<<< HEAD
 {-# LANGUAGE CPP               #-}
 {-# LANGUAGE EmptyDataDecls    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
+=======
+{-# LANGUAGE CPP             #-}
+{-# LANGUAGE EmptyDataDecls  #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE OverloadedStrings #-}
+>>>>>>> feature/sequences
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.PTX.Target
 -- Copyright   : [2014..2017] Trevor L. McDonell
@@ -51,6 +59,8 @@ import Data.ByteString.Short                                        ( ShortByteS
 import Data.String
 import System.IO.Unsafe
 import Text.Printf
+import Data.String
+import Data.ByteString.Short                                        ( ShortByteString )
 import qualified Data.Map                                           as Map
 import qualified Data.Set                                           as Set
 
@@ -137,8 +147,13 @@ withPTXTargetMachine
     -> IO a
 withPTXTargetMachine dev go =
   let CUDA.Compute m n = CUDA.computeCapability dev
+<<<<<<< HEAD
       isa              = CPUFeature (ptxISAVersion m n)
       sm               = fromString (printf "sm_%d%d" m n)
+=======
+      isa              = ptxISAVersion m n
+      sm               = fromString $ printf "sm_%d%d" m n
+>>>>>>> feature/sequences
   in
   withTargetOptions $ \options -> do
     withTargetMachine
@@ -177,5 +192,9 @@ ptxISAVersion _ _ = "ptx40"
 ptxTarget :: LLVM.Target
 ptxTarget = unsafePerformIO $ do
   initializeAllTargets
+<<<<<<< HEAD
+=======
+  --either error fst `fmap` runExceptT (lookupTarget Nothing ptxTargetTriple)
+>>>>>>> feature/sequences
   fst `fmap` lookupTarget Nothing ptxTargetTriple
 

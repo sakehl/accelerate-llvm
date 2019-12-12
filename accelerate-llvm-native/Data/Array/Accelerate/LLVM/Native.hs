@@ -33,6 +33,7 @@ module Data.Array.Accelerate.LLVM.Native (
   run1, run1With,
   runN, runNWith,
   stream, streamWith,
+  streamOut, streamOutWith,
 
   -- * Asynchronous execution
   Async,
@@ -54,6 +55,7 @@ module Data.Array.Accelerate.LLVM.Native (
 
 -- accelerate
 import Data.Array.Accelerate.Array.Sugar                            ( Arrays )
+<<<<<<< HEAD
 import Data.Array.Accelerate.AST                                    ( PreOpenAfun(..) )
 import Data.Array.Accelerate.Async
 import Data.Array.Accelerate.Smart                                  ( Acc )
@@ -67,6 +69,13 @@ import Data.Array.Accelerate.LLVM.Native.Embed                      ( embedOpenA
 import Data.Array.Accelerate.LLVM.Native.Execute                    ( executeAcc, executeOpenAcc )
 import Data.Array.Accelerate.LLVM.Native.Execute.Environment        ( Aval )
 import Data.Array.Accelerate.LLVM.Native.Link                       ( ExecOpenAfun, linkAcc, linkAfun )
+=======
+import Data.Array.Accelerate.Smart                                  ( Acc, Seq )
+import Data.Array.Accelerate.LLVM.Native.Debug                      as Debug
+
+import Data.Array.Accelerate.LLVM.Native.Compile                    ( compileAcc, compileAfun, compileSeq )
+import Data.Array.Accelerate.LLVM.Native.Execute                    ( executeAcc, executeAfun1, executeSeq )
+>>>>>>> feature/sequences
 import Data.Array.Accelerate.LLVM.Native.State
 import Data.Array.Accelerate.LLVM.Native.Target
 import Data.Array.Accelerate.LLVM.State                             ( LLVM )
@@ -263,6 +272,16 @@ streamWith target f arrs = map go arrs
   where
     !go = run1With target f
 
+streamOut :: Arrays a => Seq [a] -> [a]
+streamOut = streamOutWith defaultTarget
+
+streamOutWith :: Arrays a => Native -> Seq [a] -> [a]
+streamOutWith target s =
+  let
+    s'  = convertSeqWith (config target) s
+    s'' = unsafePerformIO $ phase "compile" elapsedS (evalNative target (compileSeq s')) >>= dumpStats
+  in unsafePerformIO $ phase "execute" elapsedP (evalNative target (executeSeq s''))
+
 
 -- | Ahead-of-time compilation for an embedded array program.
 --
@@ -359,6 +378,7 @@ runQ' using f = do
 config :: Native -> Phase
 config target = phases
   { convertOffsetOfSegment = gangSize target > 1
+  , convertSubarrayToIndex = True
   }
 
 

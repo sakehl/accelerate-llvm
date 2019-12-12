@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_HADDOCK hide #-}
+{-# LANGUAGE OverloadedStrings   #-}
 -- |
 -- Module      : Data.Array.Accelerate.LLVM.CodeGen.Intrinsic
 -- Copyright   : [2015..2017] Trevor L. McDonell
@@ -24,6 +25,7 @@ import Data.Monoid
 import Data.ByteString.Short                                    ( ShortByteString )
 import Data.HashMap.Strict                                      ( HashMap )
 import qualified Data.HashMap.Strict                            as HashMap
+import Data.ByteString.Short                                    ( ShortByteString )
 
 
 -- | During code generation we need to know the name of functions implementing

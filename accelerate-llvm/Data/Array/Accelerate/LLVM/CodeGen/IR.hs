@@ -29,7 +29,6 @@ import Data.Array.Accelerate.Array.Sugar
 
 import qualified Data.ByteString.Short                              as B
 
-
 -- | The datatype 'IR' represents the LLVM IR producing a value of type 'a'.
 -- Note that the operands comprising this value are stored in representation
 -- type.

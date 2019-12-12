@@ -20,8 +20,12 @@
 
 module Data.Array.Accelerate.LLVM.Native.Execute (
 
+<<<<<<< HEAD
   executeAcc, executeAfun,
   executeOpenAcc
+=======
+  executeAcc, executeAfun1, executeSeq
+>>>>>>> feature/sequences
 
 ) where
 
@@ -61,6 +65,7 @@ import qualified Prelude                                            as P
 import Foreign.C
 import Foreign.LibFFI
 import Foreign.Ptr
+import Data.ByteString.Short                                        ( ShortByteString )
 
 
 -- Array expression evaluation
@@ -478,7 +483,11 @@ executeOp
     :: Marshalable args
     => Int
     -> Executable
+<<<<<<< HEAD
     -> Function
+=======
+    -> (ShortByteString, [Arg] -> IO ())
+>>>>>>> feature/sequences
     -> Gamma aenv
     -> Aval aenv
     -> Range

@@ -20,7 +20,7 @@
 module Data.Array.Accelerate.LLVM.Compile (
 
   Compile(..),
-  compileAcc, compileAfun,
+  compileAcc, compileAfun, compileSeq,
 
   CompiledOpenAcc(..), CompiledOpenAfun,
   CompiledAcc, CompiledAfun,
@@ -43,9 +43,14 @@ import Data.Array.Accelerate.LLVM.State
 import qualified Data.Array.Accelerate.LLVM.AST                     as AST
 
 -- standard library
-import Data.IntMap                                                  ( IntMap )
-import Control.Applicative                                          hiding ( Const )
-import Prelude                                                      hiding ( map, unzip, zipWith, scanl, scanl1, scanr, scanr1, exp )
+import Data.IntMap                                              ( IntMap )
+import Data.IORef                                               ( IORef, newIORef )
+import Data.Monoid                                              hiding ( Last )
+import Data.Traversable                                         ( mapM, sequenceA )
+import Control.Applicative                                      hiding ( Const )
+import Control.Monad                                            ( join )
+import Control.Monad.Trans                                      ( liftIO )
+import Prelude                                                  hiding ( map, unzip, zipWith, scanl, scanl1, scanr, scanr1, exp, sequence, mapM )
 
 
 class Foreign arch => Compile arch where
@@ -71,6 +76,40 @@ data CompiledOpenAcc arch aenv a where
   PlainAcc  :: Arrays a
             => AST.PreOpenAccCommand  (CompiledOpenAcc arch) aenv a
             -> CompiledOpenAcc arch aenv a
+  
+  CollectAcc :: SeqIndex index
+             => IORef (Maybe Int) -- Previously learnt chunk size
+             -> CompiledExp arch aenv Int
+             -> Maybe (CompiledExp arch aenv Int)
+             -> Maybe (CompiledExp arch aenv Int)
+             -> PreOpenSeq index (CompiledOpenAcc arch) aenv a
+             -> CompiledOpenAcc arch aenv a
+
+-- | Annotate an open array expression with the information necessary to execute
+-- each node directly.
+--
+-- data CompiledOpenAcc arch aenv a where
+--   ExecAcc    :: ExecutableR arch
+--              -> Gamma aenv
+--              -> PreOpenAcc (CompiledOpenAcc arch) aenv a
+--              -> CompiledOpenAcc arch aenv a
+
+--   EmbedAcc   :: (Shape sh, Elt e)
+--              => PreExp (CompiledOpenAcc arch) aenv sh
+--              -> CompiledOpenAcc arch aenv (Array sh e)
+
+--   UnzipAcc   :: (Elt t, Elt e)
+--              => TupleIdx (TupleRepr t) e
+--              -> Idx aenv (Array sh t)
+--              -> CompiledOpenAcc arch aenv (Array sh e)
+
+--   CollectAcc :: SeqIndex index
+--              => IORef (Maybe Int) -- Previously learnt chunk size
+--              -> ExecExp arch aenv Int
+--              -> Maybe (ExecExp arch aenv Int)
+--              -> Maybe (ExecExp arch aenv Int)
+--              -> PreOpenSeq index (CompiledOpenAcc arch) aenv a
+--              -> CompiledOpenAcc arch aenv a
 
 
 -- An annotated AST with embedded build products
@@ -104,6 +143,13 @@ compileAfun
     => DelayedAfun f
     -> LLVM arch (CompiledAfun arch f)
 compileAfun = compileOpenAfun
+
+{-# INLINEABLE compileSeq #-}
+compileSeq
+    :: (Compile arch)
+    => DelayedSeq a
+    -> LLVM arch (StreamSeq (Int,Int) (CompiledOpenAcc arch) a)
+compileSeq (StreamSeq binds s) = StreamSeq <$> compileExtend binds <*> compileOpenSeq s
 
 
 {-# INLINEABLE compileOpenAfun #-}
@@ -146,11 +192,16 @@ compileOpenAcc = traverseAcc
 
         -- Foreign arrays operations
         Aforeign ff afun a          -> foreignA ff afun a
+        LiftedAFun f _ a           -> liftedAfun f a
+
+        -- Sequences
+        Collect l u i s         -> join $ collect <$> travE l <*> fmap sequenceA (mapM travE u) <*> fmap sequenceA (mapM travE i) <*> compileOpenSeq s
 
         -- Array injection & manipulation
         Reshape sh a                -> plain =<< liftA2 AST.Reshape   <$> travE sh <*> travM a
         Unit e                      -> plain =<< liftA  AST.Unit      <$> travE e
         Use arrs                    -> plain $ pure (AST.Use arrs)
+        Subarray i s arr            -> plain =<< liftA3 AST.Subarray             <$> travE i <*> travE s <*> pure (pure arr)
         Map f a
           | Just (t,x) <- unzip f a -> plain $ pure (AST.Unzip t x)
 
@@ -212,6 +263,10 @@ compileOpenAcc = traverseAcc
         travD Manifest{}  = $internalError "compileOpenAcc" "expected delayed array"
         travD Delayed{..} = liftA2 (flip const) <$> travF indexD <*> travE extentD
 
+        travE :: DelayedOpenExp env aenv e
+              -> LLVM arch (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) env aenv e)
+        travE = compileOpenExp
+
         travM :: (Shape sh, Elt e)
               => DelayedOpenAcc aenv (Array sh e)
               -> LLVM arch (IntMap (Idx' aenv), Idx aenv (Array sh e))
@@ -243,6 +298,16 @@ compileOpenAcc = traverseAcc
               => (IntMap (Idx' aenv'), AST.PreOpenAccCommand (CompiledOpenAcc arch) aenv' arrs')
               -> LLVM arch (CompiledOpenAcc arch aenv' arrs')
         plain (_, eacc) = return (PlainAcc eacc)
+
+        collect :: SeqIndex index
+                => (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) () aenv Int)
+                -> (IntMap (Idx' aenv), Maybe (PreOpenExp (CompiledOpenAcc arch) () aenv Int))
+                -> (IntMap (Idx' aenv), Maybe (PreOpenExp (CompiledOpenAcc arch) () aenv Int))
+                -> PreOpenSeq index (CompiledOpenAcc arch) aenv arrs
+                -> LLVM arch (CompiledOpenAcc arch aenv arrs)
+        collect l u i s = do
+          l' <- liftIO $ newIORef Nothing
+          return $! CollectAcc l' (snd l) (snd u) (snd i) s
 
         -- Unzips of manifest array data can be done in constant time without
         -- executing any array programs. We split them out here into a separate
@@ -282,67 +347,115 @@ compileOpenAcc = traverseAcc
               absurd :: Idx () t -> Idx aenv t
               absurd = error "complicated stuff in simple words"
 
-    -- Traverse a scalar expression
-    --
+        liftedAfun :: (Arrays a, Arrays b)
+                 => DelayedAfun (a -> b)
+                 -> DelayedOpenAcc aenv a
+                 -> LLVM arch (CompiledOpenAcc arch aenv b)
+        liftedAfun f a =
+          traverseAcc $ Manifest (Apply (weaken absurd f) a)
+            where
+              absurd :: Idx () t -> Idx aenv t
+              absurd = error "complicated stuff in simple words"
+
+compileOpenSeq :: forall arch index aenv arrs. (Compile arch)
+               => PreOpenSeq index DelayedOpenAcc aenv arrs
+               -> LLVM arch (PreOpenSeq index (CompiledOpenAcc arch) aenv arrs)
+compileOpenSeq (Producer p s) = Producer <$> travP p <*> compileOpenSeq s
+  where
+    travP :: Producer index DelayedOpenAcc aenv a
+          -> LLVM arch (Producer index (CompiledOpenAcc arch) aenv a)
+    travP (Pull src)           = pure (Pull src)
+    travP (ProduceAccum l f a) = ProduceAccum <$> fmap (fmap snd) (mapM travE l) <*> compileOpenAfun f <*> compileOpenAcc a
+    travP _                    = $internalError "compileOpenSeq" "Sequence computation at wrong stage"
+
     travE :: DelayedOpenExp env aenv e
           -> LLVM arch (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) env aenv e)
-    travE exp =
-      case exp of
-        Var ix                  -> return $ pure (Var ix)
-        Const c                 -> return $ pure (Const c)
-        PrimConst c             -> return $ pure (PrimConst c)
-        IndexAny                -> return $ pure IndexAny
-        IndexNil                -> return $ pure IndexNil
-        Foreign ff f x          -> foreignE ff f x
-        --
-        Let a b                 -> liftA2 Let               <$> travE a <*> travE b
-        IndexCons t h           -> liftA2 IndexCons         <$> travE t <*> travE h
-        IndexHead h             -> liftA  IndexHead         <$> travE h
-        IndexTail t             -> liftA  IndexTail         <$> travE t
-        IndexSlice slix x s     -> liftA2 (IndexSlice slix) <$> travE x <*> travE s
-        IndexFull slix x s      -> liftA2 (IndexFull slix)  <$> travE x <*> travE s
-        ToIndex s i             -> liftA2 ToIndex           <$> travE s <*> travE i
-        FromIndex s i           -> liftA2 FromIndex         <$> travE s <*> travE i
-        Tuple t                 -> liftA  Tuple             <$> travT t
-        Prj ix e                -> liftA  (Prj ix)          <$> travE e
-        Cond p t e              -> liftA3 Cond              <$> travE p <*> travE t <*> travE e
-        While p f x             -> liftA3 While             <$> travF p <*> travF f <*> travE x
-        PrimApp f e             -> liftA  (PrimApp f)       <$> travE e
-        Index a e               -> liftA2 Index             <$> travA a <*> travE e
-        LinearIndex a e         -> liftA2 LinearIndex       <$> travA a <*> travE e
-        Shape a                 -> liftA  Shape             <$> travA a
-        ShapeSize e             -> liftA  ShapeSize         <$> travE e
-        Intersect x y           -> liftA2 Intersect         <$> travE x <*> travE y
-        Union x y               -> liftA2 Union             <$> travE x <*> travE y
+    travE = compileOpenExp
+compileOpenSeq (Consumer c)   = Consumer <$> travC c
+  where
+    travC :: Consumer index DelayedOpenAcc aenv a
+          -> LLVM arch (Consumer index (CompiledOpenAcc arch) aenv a)
+    travC (Last a d) = Last <$> compileOpenAcc a <*> compileOpenAcc d
+    travC (Stuple t) = Stuple <$> travStup t
+    travC _          = $internalError "compileOpenSeq" "Sequence computation at wrong stage"
 
-      where
-        travA :: (Shape sh, Elt e)
-              => DelayedOpenAcc aenv (Array sh e)
-              -> LLVM arch (IntMap (Idx' aenv), CompiledOpenAcc arch aenv (Array sh e))
-        travA a = do
-          a'    <- traverseAcc a
-          return $ (bind a', a')
+    travStup :: Atuple (PreOpenSeq index DelayedOpenAcc aenv) t
+              -> LLVM arch (Atuple (PreOpenSeq index (CompiledOpenAcc arch) aenv) t)
+    travStup NilAtup = pure NilAtup
+    travStup (SnocAtup t a) = SnocAtup <$> travStup t <*> compileOpenSeq a
+compileOpenSeq (Reify ty a) = Reify ty <$> compileOpenAcc a
+compileOpenSeq _ = $internalError "compileOpenSeq" "Sequence computation at wrong stage"
 
-        travT :: Tuple (DelayedOpenExp env aenv) t
-              -> LLVM arch (IntMap (Idx' aenv), Tuple (PreOpenExp (CompiledOpenAcc arch) env aenv) t)
-        travT NilTup        = return (pure NilTup)
-        travT (SnocTup t e) = liftA2 SnocTup <$> travT t <*> travE e
+-- Traverse a scalar expression
+--
+compileOpenExp :: forall arch env aenv e. (Compile arch)
+               => DelayedOpenExp env aenv e
+               -> LLVM arch (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) env aenv e)
+compileOpenExp exp =
+  case exp of
+    Var ix                  -> return $ pure (Var ix)
+    Const c                 -> return $ pure (Const c)
+    PrimConst c             -> return $ pure (PrimConst c)
+    IndexAny                -> return $ pure IndexAny
+    IndexNil                -> return $ pure IndexNil
+    Undef                   -> return $ pure Undef
+    Foreign ff f x          -> foreignE ff f x
+    --
+    Let a b                 -> liftA2 Let                   <$> travE a <*> travE b
+    IndexCons t h           -> liftA2 IndexCons             <$> travE t <*> travE h
+    IndexHead h             -> liftA  IndexHead             <$> travE h
+    IndexTail t             -> liftA  IndexTail             <$> travE t
+    IndexSlice slix x s     -> liftA  (IndexSlice slix x)   <$> travE s
+    IndexFull slix x s      -> liftA2 (IndexFull slix)      <$> travE x <*> travE s
+    ToIndex s i             -> liftA2 ToIndex               <$> travE s <*> travE i
+    FromIndex s i           -> liftA2 FromIndex             <$> travE s <*> travE i
+    IndexTrans sh           -> liftA  IndexTrans            <$> travE sh
+    ToSlice slix s n        -> liftA2 (ToSlice slix)        <$> travE s <*> travE n
+    Tuple t                 -> liftA  Tuple                 <$> travT t
+    Prj ix e                -> liftA  (Prj ix)              <$> travE e
+    Cond p t e              -> liftA3 Cond                  <$> travE p <*> travE t <*> travE e
+    While p f x             -> liftA3 While                 <$> travF p <*> travF f <*> travE x
+    PrimApp f e             -> liftA  (PrimApp f)           <$> travE e
+    Index a e               -> liftA2 Index                 <$> travA a <*> travE e
+    LinearIndex a e         -> liftA2 LinearIndex           <$> travA a <*> travE e
+    Shape a                 -> liftA  Shape                 <$> travA a
+    ShapeSize e             -> liftA  ShapeSize             <$> travE e
+    Intersect x y           -> liftA2 Intersect             <$> travE x <*> travE y
+    Union x y               -> liftA2 Union                 <$> travE x <*> travE y
+    
 
-        travF :: DelayedOpenFun env aenv t
-              -> LLVM arch (IntMap (Idx' aenv), PreOpenFun (CompiledOpenAcc arch) env aenv t)
-        travF (Body b)  = liftA Body <$> travE b
-        travF (Lam  f)  = liftA Lam  <$> travF f
+  where
+    travE :: forall aenv env e. DelayedOpenExp env aenv e
+           -> LLVM arch (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) env aenv e)
+    travE = compileOpenExp
 
-        bind :: (Shape sh, Elt e) => CompiledOpenAcc arch aenv (Array sh e) -> IntMap (Idx' aenv)
-        bind (PlainAcc (AST.Avar ix)) = freevar ix
-        bind _                        = $internalError "bind" "expected array variable"
+    travA :: forall sh e. (Shape sh, Elt e)
+          => DelayedOpenAcc aenv (Array sh e)
+          -> LLVM arch (IntMap (Idx' aenv), CompiledOpenAcc arch aenv (Array sh e))
+    travA a = do
+      a'    <- compileOpenAcc a
+      return $ (bind a', a')
 
-        foreignE :: (Elt a, Elt b, A.Foreign asm)
-                 => asm           (a -> b)
-                 -> DelayedFun () (a -> b)
-                 -> DelayedOpenExp env aenv a
-                 -> LLVM arch (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) env aenv b)
-        foreignE asm f x =
+    travT :: Tuple (DelayedOpenExp env aenv) t
+          -> LLVM arch (IntMap (Idx' aenv), Tuple (PreOpenExp (CompiledOpenAcc arch) env aenv) t)
+    travT NilTup        = return (pure NilTup)
+    travT (SnocTup t e) = liftA2 SnocTup <$> travT t <*> travE e
+
+    travF :: forall aenv env t. DelayedOpenFun env aenv t
+          -> LLVM arch (IntMap (Idx' aenv), PreOpenFun (CompiledOpenAcc arch) env aenv t)
+    travF (Body b)  = liftA Body <$> travE b
+    travF (Lam  f)  = liftA Lam  <$> travF f
+
+    bind :: forall sh e. (Shape sh, Elt e) => CompiledOpenAcc arch aenv (Array sh e) -> IntMap (Idx' aenv)
+    bind (PlainAcc (AST.Avar ix)) = freevar ix
+    bind _                       = $internalError "bind" "expected array variable"
+
+    foreignE :: (Elt a, Elt b, A.Foreign asm)
+             => asm           (a -> b)
+             -> DelayedFun () (a -> b)
+             -> DelayedOpenExp env aenv a
+             -> LLVM arch (IntMap (Idx' aenv), PreOpenExp (CompiledOpenAcc arch) env aenv b)
+    foreignE asm f x =
           case foreignExp (undefined :: arch) asm of
             Just{}                      -> liftA (Foreign asm err) <$> travE x
             Nothing | Lam (Body b) <- f -> liftA2 Let              <$> travE x <*> travE (weaken absurd (weakenE zero b))
@@ -357,6 +470,33 @@ compileOpenAcc = traverseAcc
 
             err :: CompiledFun arch () (a -> b)
             err = $internalError "foreignE" "attempt to use fallback in foreign expression"
+
+compileExtend
+    :: (Compile arch)
+    => Extend DelayedOpenAcc aenv aenv'
+    -> LLVM arch (Extend (CompiledOpenAcc arch) aenv aenv')
+compileExtend (PushEnv env a) = PushEnv <$> compileExtend env <*> compileOpenAcc a
+compileExtend BaseEnv         = return BaseEnv
+
+
+-- Compilation
+-- -----------
+
+-- | Generate code that will be used to evaluate an array computation. Pass the
+-- generated code to the appropriate backend handler, which may then, for
+-- example, compile and link the code into the running executable.
+--
+-- TODO:
+--  * asynchronous compilation
+--  * kernel caching
+--
+-- {-# INLINEABLE build #-}
+-- build :: forall arch aenv a. Compile arch
+--       => DelayedOpenAcc aenv a
+--       -> Gamma aenv
+--       -> LLVM arch (ExecutableR arch)
+-- build acc aenv =
+--   compileForTarget acc aenv
 
 
 -- Applicative

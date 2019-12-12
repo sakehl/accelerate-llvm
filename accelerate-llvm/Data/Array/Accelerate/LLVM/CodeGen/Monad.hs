@@ -43,8 +43,10 @@ module Data.Array.Accelerate.LLVM.CodeGen.Monad (
 
 -- standard library
 import Control.Applicative
-import Control.Monad.State
-import Data.ByteString.Short                                        ( ShortByteString )
+import Control.Monad.State.Strict
+import Data.String
+import Data.ByteString.Short                                            ( ShortByteString )
+import qualified Data.ByteString.Short                                  as B
 import Data.Function
 import Data.HashMap.Strict                                          ( HashMap )
 import Data.Map                                                     ( Map )
@@ -265,10 +267,17 @@ instr :: Instruction a -> CodeGen (IR a)
 instr ins = ir (typeOf ins) <$> instr' ins
 
 instr' :: Instruction a -> CodeGen (Operand a)
-instr' ins = do
-  name <- freshName
-  instr_ $ downcast (name := ins)
-  return $ LocalReference (typeOf ins) name
+instr' ins =
+  -- LLVM-5 does not allow instructions of type void to have a name.
+  case typeOf ins of
+    VoidType -> do
+      do_ ins
+      return $ LocalReference VoidType (Name B.empty)
+    --
+    ty -> do
+      name <- freshName
+      instr_ $ downcast (name := ins)
+      return $ LocalReference ty name
 
 -- | Execute an unnamed instruction
 --

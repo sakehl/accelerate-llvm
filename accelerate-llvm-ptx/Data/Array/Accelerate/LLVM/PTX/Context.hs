@@ -29,6 +29,8 @@ import Control.Exception
 import Control.Monad
 import Text.PrettyPrint
 
+import Prelude hiding ((<>))
+
 
 -- | An execution context, which is tied to a specific device and CUDA execution
 -- context.

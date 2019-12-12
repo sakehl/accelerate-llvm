@@ -12,3 +12,5 @@ cabal.sandbox.config
 stack.yaml
 tags
 local/
+accelerate-llvm/.stack-work-profile/
+accelerate-llvm-native/.stack-work-profile/

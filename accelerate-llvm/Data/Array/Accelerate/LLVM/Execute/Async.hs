@@ -65,6 +65,21 @@ class Async arch where
   --
   block       :: EventR arch -> LLVM arch ()
 
+  -- | Execute the given operation asynchronously in a new execution stream and
+  -- time how long it takes.
+  --
+  -- @robeverest: What the actual fuck is this. How is this asynchronous? Why
+  -- does this live here???
+  --
+  timed       :: (StreamR arch -> LLVM arch a) -> LLVM arch (Double,a)
+
+  -- | Interleave a computation in order to do lazy IO.
+  --
+  -- @robeverest: This doesn't belong here either.
+  --
+  unsafeInterleave :: LLVM arch a
+                   -> LLVM arch a
+
 
 -- | Wait for an asynchronous operation to complete, then return it.
 --

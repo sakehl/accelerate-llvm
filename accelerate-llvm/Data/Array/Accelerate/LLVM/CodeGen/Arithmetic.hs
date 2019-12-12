@@ -696,8 +696,8 @@ lm :: FloatingType t -> ShortByteString -> CodeGen Label
 lm t n
   = intrinsic
   $ case t of
-      TypeFloat{}   -> n<>"f"
-      TypeCFloat{}  -> n<>"f"
+      TypeFloat{}   -> n P.<> "f"
+      TypeCFloat{}  -> n P.<> "f"
       TypeDouble{}  -> n
       TypeCDouble{} -> n
 

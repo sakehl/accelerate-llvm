@@ -63,6 +63,7 @@ llvmOfOpenAcc arch uid (Manifest pacc) aenv = runLLVM uid $
   case pacc of
     -- Producers
     Map f a                 -> map arch aenv (travF1 f) (travD a)
+    Generate _ (Lam (Body Undef)) -> return $ IROpenAcc []
     Generate _ f            -> generate arch aenv (travF1 f)
     Transform _ p f a       -> transform arch aenv (travF1 p) (travF1 f) (travD a)
     Backpermute _ p a       -> backpermute arch aenv (travF1 p) (travD a)
@@ -92,8 +93,11 @@ llvmOfOpenAcc arch uid (Manifest pacc) aenv = runLLVM uid $
     Aprj{}                  -> unexpectedError
     Use{}                   -> unexpectedError
     Unit{}                  -> unexpectedError
+    Subarray{}              -> unexpectedError
     Aforeign{}              -> unexpectedError
+    LiftedAFun{}            -> unexpectedError
     Reshape{}               -> unexpectedError
+    Collect{}               -> unexpectedError
 
     Replicate{}             -> fusionError
     Slice{}                 -> fusionError

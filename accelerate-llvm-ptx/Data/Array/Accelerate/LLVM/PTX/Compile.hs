@@ -82,14 +82,21 @@ import System.IO
 import System.IO.Unsafe
 import System.Process
 import Text.Printf                                                  ( printf )
+<<<<<<< HEAD
 import qualified Data.ByteString                                    as B
 import qualified Data.ByteString.Char8                              as B8
 import qualified Data.ByteString.Internal                           as B
+=======
+import Data.ByteString.Short.Char8                                  ( ShortByteString, unpack )
+import qualified Data.ByteString.Char8                              as B
+import qualified Data.ByteString.Short                              as BS
+>>>>>>> feature/sequences
 import qualified Data.Map                                           as Map
 import Prelude                                                      as P
 
 
 instance Compile PTX where
+<<<<<<< HEAD
   data ObjectR PTX = ObjectR { objId     :: {-# UNPACK #-} !UID
                              , ptxConfig :: ![(ShortByteString, LaunchConfig)]
                              , objData   :: {- LAZY -} ByteString
@@ -101,6 +108,26 @@ instance Compile PTX where
 --
 -- This generates the target code together with a list of each kernel function
 -- defined in the module paired with its occupancy information.
+=======
+  data ExecutableR PTX = PTXR { ptxKernel :: ![Kernel]
+                              , ptxModule :: {-# UNPACK #-} !(Lifetime CUDA.Module)
+                              }
+  compileForTarget     = compileForPTX
+
+
+data Kernel = Kernel {
+    kernelFun                   :: {-# UNPACK #-} !CUDA.Fun
+  , kernelOccupancy             :: {-# UNPACK #-} !CUDA.Occupancy
+  , kernelSharedMemBytes        :: {-# UNPACK #-} !Int
+  , kernelThreadBlockSize       :: {-# UNPACK #-} !Int
+  , kernelThreadBlocks          :: (Int -> Int)
+  , kernelName                  :: {-# UNPACK #-} !ShortByteString
+  }
+
+-- | Compile a given module for the NVPTX backend. This produces a CUDA module
+-- as well as a list of the kernel functions in the module, together with some
+-- occupancy information.
+>>>>>>> feature/sequences
 --
 compile :: DelayedOpenAcc aenv a -> Gamma aenv -> LLVM PTX (ObjectR PTX)
 compile acc aenv = do
@@ -115,6 +142,7 @@ compile acc aenv = do
 
   -- Lower the generated LLVM into a CUBIN object code.
   --
+<<<<<<< HEAD
   -- The 'objData' field is lazily evaluated since the object code might have
   -- already been loaded into the current context from a different function, in
   -- which case it will be found by the linker cache.
@@ -136,6 +164,27 @@ compile acc aenv = do
 -- | Compile the LLVM module to PTX assembly. This is done either by the
 -- closed-source libNVVM library, or via the standard NVPTX backend (which is
 -- the default).
+=======
+  liftIO . LLVM.withContext $ \ctx -> do
+    ptx  <- compileModule dev ctx ast
+    funs <- sequence [ linkFunction ptx f x | (LLVM.Name f, KM_PTX x) <- Map.toList md ]
+    ptx' <- newLifetime ptx
+    addFinalizer ptx' $ do
+      Debug.traceIO Debug.dump_gc
+        $ printf "gc: unload module: %s"
+        $ intercalate "," (P.map (show . kernelName) funs)
+      withContext (ptxContext target) (CUDA.unload ptx)
+    return $! PTXR funs ptx'
+
+
+-- | Compile the LLVM module to produce a CUDA module.
+--
+--    * If we are using NVVM, this includes all LLVM optimisations plus some
+--    sekrit optimisations.
+--
+--    * If we are just using the llvm ptx backend, we still need to run the
+--    standard optimisations.
+>>>>>>> feature/sequences
 --
 compilePTX :: CUDA.DeviceProperties -> LLVM.Context -> AST.Module -> IO ByteString
 compilePTX dev ctx ast = do
@@ -231,7 +280,11 @@ ignoreSIGPIPE =
 -- Compile and optimise the module to PTX using the (closed source) NVVM
 -- library. This _may_ produce faster object code than the LLVM NVPTX compiler.
 --
+<<<<<<< HEAD
 compileModuleNVVM :: CUDA.DeviceProperties -> String -> [(String, ByteString)] -> LLVM.Module -> IO ByteString
+=======
+compileModuleNVVM :: CUDA.DeviceProperties -> ShortByteString -> [(String, ByteString)] -> LLVM.Module -> IO CUDA.Module
+>>>>>>> feature/sequences
 compileModuleNVVM dev name libdevice mdl = do
   _debug <- Debug.queryFlag Debug.debug_cc
   --
@@ -273,8 +326,13 @@ compileModuleNVVM dev name libdevice mdl = do
 
 -- Compiling with the NVPTX backend uses LLVM-3.3 and above
 --
+<<<<<<< HEAD
 compileModuleNVPTX :: CUDA.DeviceProperties -> LLVM.Module -> IO ByteString
 compileModuleNVPTX dev mdl =
+=======
+compileModuleNVPTX :: CUDA.DeviceProperties -> ShortByteString -> LLVM.Module -> IO CUDA.Module
+compileModuleNVPTX dev name mdl =
+>>>>>>> feature/sequences
   withPTXTargetMachine dev $ \nvptx -> do
 
     -- Run the standard optimisation pass
@@ -289,14 +347,51 @@ compileModuleNVPTX dev mdl =
       -- debug printout
       Debug.when Debug.dump_cc $ do
         Debug.traceIO Debug.dump_cc $ printf "llvm: optimisation did work? %s" (show b1)
+<<<<<<< HEAD
         Debug.traceIO Debug.verbose . B8.unpack =<< LLVM.moduleLLVMAssembly mdl
 
       -- Lower the LLVM module into target assembly (PTX)
       moduleTargetAssembly nvptx mdl
+=======
+        Debug.traceIO Debug.verbose . B.unpack =<< LLVM.moduleLLVMAssembly mdl
+
+      -- Lower the LLVM module into target assembly (PTX)
+      ptx <- LLVM.moduleTargetAssembly nvptx mdl
+
+      -- Link into a new CUDA module in the current context
+      linkPTX name ptx
+#endif
+
+-- | Load the given CUDA PTX into a new module that is linked into the current
+-- context.
+--
+linkPTX :: ShortByteString -> ByteString -> IO CUDA.Module
+linkPTX name ptx = do
+  _verbose      <- Debug.queryFlag Debug.verbose
+  _debug        <- Debug.queryFlag Debug.debug_cc
+  --
+  let v         = if _verbose then [ CUDA.Verbose ]                                  else []
+      d         = if _debug   then [ CUDA.GenerateDebugInfo, CUDA.GenerateLineInfo ] else []
+      flags     = concat [v,d]
+  --
+  Debug.when (Debug.dump_asm) $
+    Debug.traceIO Debug.verbose (B.unpack ptx)
+
+  jit   <- CUDA.loadDataEx ptx flags
+
+  Debug.traceIO Debug.dump_asm $
+    printf "ptx: compiled entry function \"%s\" in %s\n%s"
+           (unpack name)
+           (Debug.showFFloatSIBase (Just 2) 1000 (CUDA.jitTime jit / 1000) "s")
+           (B.unpack (CUDA.jitInfoLog jit))
+
+  return $! CUDA.jitModule jit
+>>>>>>> feature/sequences
 
 
 -- | Produce target specific assembly as a 'ByteString'.
 --
+<<<<<<< HEAD
 moduleTargetAssembly :: LLVM.TargetMachine -> LLVM.Module -> IO ByteString
 moduleTargetAssembly tm m = unsafe0 =<< LLVM.Internal.emitToByteString LLVM.Internal.FFI.codeGenFileTypeAssembly tm m
   where
@@ -316,4 +411,58 @@ moduleTargetAssembly tm m = unsafe0 =<< LLVM.Internal.emitToByteString LLVM.Inte
           0                    -> return bs
           _ | B.isSpaceWord8 x -> poke p' 0 >> return bs
           _                    -> return (B.snoc bs 0)
+=======
+-- If we are in debug mode, print statistics on kernel resource usage, etc.
+--
+linkFunction
+    :: CUDA.Module                      -- the compiled module
+    -> ShortByteString                  -- __global__ entry function name
+    -> LaunchConfig                     -- launch configuration for this global function
+    -> IO Kernel
+linkFunction mdl name configure = do
+  f     <- CUDA.getFun mdl name
+  regs  <- CUDA.requires f CUDA.NumRegs
+  ssmem <- CUDA.requires f CUDA.SharedSizeBytes
+  cmem  <- CUDA.requires f CUDA.ConstSizeBytes
+  lmem  <- CUDA.requires f CUDA.LocalSizeBytes
+  maxt  <- CUDA.requires f CUDA.MaxKernelThreadsPerBlock
+
+  let
+      (occ, cta, grid, dsmem) = configure maxt regs ssmem
+
+      msg1, msg2 :: String
+      msg1 = printf "kernel function '%s' used %d registers, %d bytes smem, %d bytes lmem, %d bytes cmem"
+                      (unpack name) regs (ssmem + dsmem) lmem cmem
+
+      msg2 = printf "multiprocessor occupancy %.1f %% : %d threads over %d warps in %d blocks"
+                      (CUDA.occupancy100 occ)
+                      (CUDA.activeThreads occ)
+                      (CUDA.activeWarps occ)
+                      (CUDA.activeThreadBlocks occ)
+
+  Debug.traceIO Debug.dump_cc (printf "cc: %s\n  ... %s" msg1 msg2)
+  return $ Kernel f occ dsmem cta grid name
+
+
+{--
+-- | Extract the names of the function definitions from the module.
+--
+-- Note: [Extracting global function names]
+--
+-- It is important to run this on the module given to us by code generation.
+-- After combining modules with 'libdevice', extra function definitions,
+-- corresponding to basic maths operations, will be added to the module. These
+-- functions will not be callable as __global__ functions.
+--
+-- The list of names will be exported in the order that they appear in the
+-- module.
+--
+globalFunctions :: [Definition] -> [String]
+globalFunctions defs =
+  [ n | GlobalDefinition Function{..} <- defs
+      , not (null basicBlocks)
+      , let Name n = name
+      ]
+--}
+>>>>>>> feature/sequences
 

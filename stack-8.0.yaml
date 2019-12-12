@@ -10,14 +10,13 @@ packages:
 - 'accelerate-llvm-ptx'
 
 - location:
-    git:    https://github.com/tmcdonell/accelerate.git
-    commit: 4edb2ab8ef784b64c34156c257f1c0ef5c2f6ccb
+    git:    https://github.com/AccelerateHS/accelerate.git
+    commit: 1c324650c9f6e8d146078c31692fa5e31fa382bd
   extra-dep: true
 
 - location:
     git:    https://github.com/tmcdonell/cuda.git
     commit: 1bff17152088384b71a439b01ec993a54e2618c9
-  extra-dep: true
 
 extra-deps:
 - 'chaselev-deque-0.5.0.5'

@@ -29,6 +29,7 @@ module Data.Array.Accelerate.LLVM.PTX (
   run1, run1With,
   runN, runNWith,
   stream, streamWith,
+  streamOut, streamOutWith,
 
   -- * Asynchronous execution
   Async,
@@ -56,7 +57,11 @@ import Data.Array.Accelerate.Array.Sugar                            ( Arrays )
 import Data.Array.Accelerate.Async
 import Data.Array.Accelerate.Debug                                  as Debug
 import Data.Array.Accelerate.Error
+<<<<<<< HEAD
 import Data.Array.Accelerate.Smart                                  ( Acc )
+=======
+import Data.Array.Accelerate.Smart                                ( Acc, Seq )
+>>>>>>> feature/sequences
 import Data.Array.Accelerate.Trafo
 
 import Data.Array.Accelerate.LLVM.Execute.Async                     ( AsyncR(..) )
@@ -292,6 +297,7 @@ streamWith target f arrs = map go arrs
     !go = run1With target f
 
 
+<<<<<<< HEAD
 -- | Ahead-of-time compilation for an embedded array program.
 --
 -- This function will generate, compile, and link into the final executable,
@@ -356,6 +362,17 @@ runQ' using f = do
                                   $(TH.doE (reverse (eval : stmts))) |]
   --
   go afun [] [] []
+=======
+streamOut :: Arrays a => Seq [a] -> [a]
+streamOut = streamOutWith defaultTarget
+
+streamOutWith :: Arrays a => PTX -> Seq [a] -> [a]
+streamOutWith target s =
+  let
+    s'  = convertSeqWith config s
+    s'' = unsafePerformIO $ phase "compile" (evalPTX target (compileSeq s')) >>= dumpStats
+  in unsafePerformIO $ phase "execute" (evalPTX target (executeSeq s''))
+>>>>>>> feature/sequences
 
 
 -- How the Accelerate program should be evaluated.

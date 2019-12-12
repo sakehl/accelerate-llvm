@@ -14,6 +14,7 @@ module Data.Array.Accelerate.LLVM.Native.State (
 
   evalNative,
   createTarget, defaultTarget,
+  unsafeInterleaveNative,
 
   Strategy,
   balancedParIO, unbalancedParIO,
@@ -34,10 +35,15 @@ import qualified Data.Array.Accelerate.LLVM.Native.Link.Cache   as LC
 import qualified Data.Array.Accelerate.LLVM.Native.Debug        as Debug
 
 -- library
+import Control.Monad.State                                      ( liftIO, gets )
 import Data.Monoid
 import System.IO.Unsafe
 import Text.Printf
+<<<<<<< HEAD
 import Data.ByteString.Short.Char8                              ( ShortByteString, unpack )
+=======
+import Data.ByteString.Short                                    ( ShortByteString )
+>>>>>>> feature/sequences
 
 import GHC.Conc
 
@@ -46,6 +52,14 @@ import GHC.Conc
 --
 evalNative :: Native -> LLVM Native a -> IO a
 evalNative = evalLLVM
+
+
+-- | Interleave a computation in the native backend.
+--
+unsafeInterleaveNative :: LLVM Native a -> LLVM Native a
+unsafeInterleaveNative a = do
+  target <- gets llvmTarget
+  liftIO (unsafeInterleaveIO (evalNative target a))
 
 
 -- | Create a Native execution target by spawning a worker thread on each of the
@@ -138,5 +152,9 @@ timed name f = Debug.timed Debug.dump_exec (elapsed name) f
 
 {-# INLINE elapsed #-}
 elapsed :: ShortByteString -> Double -> Double -> String
+<<<<<<< HEAD
 elapsed name x y = printf "exec: %s %s" (unpack name) (Debug.elapsedP x y)
+=======
+elapsed name x y = printf "exec: %s %s" (show name) (Debug.elapsedP x y)
+>>>>>>> feature/sequences
 
