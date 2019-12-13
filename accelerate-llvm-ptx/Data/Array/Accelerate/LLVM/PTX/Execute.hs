@@ -496,7 +496,8 @@ permuteOp exe gamma aenv stream inplace shIn dfs = do
                   _   -> $internalError "permute" "no kernels found"
   --
   ptx <- gets llvmTarget
-  out <- if inplace
+--   out <- if inplace
+  out <- if True
            then return dfs
            else cloneArrayAsync stream dfs
   --
