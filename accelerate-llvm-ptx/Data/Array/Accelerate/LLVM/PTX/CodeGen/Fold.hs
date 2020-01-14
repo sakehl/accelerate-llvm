@@ -34,6 +34,7 @@ import Data.Array.Accelerate.LLVM.CodeGen.IR
 import Data.Array.Accelerate.LLVM.CodeGen.Loop                      as Loop
 import Data.Array.Accelerate.LLVM.CodeGen.Monad
 import Data.Array.Accelerate.LLVM.CodeGen.Sugar
+import Data.Array.Accelerate.LLVM.CodeGen.Constant (undef)
 
 import Data.Array.Accelerate.LLVM.PTX.Analysis.Launch
 import Data.Array.Accelerate.LLVM.PTX.CodeGen.Base
@@ -298,6 +299,7 @@ mkFoldAllM2 dev aenv combine mseed =
     return_
 
 
+
 -- Reduce an array of arbitrary rank along the innermost dimension only.
 --
 -- For simplicity, each element of the output (reduction along an
@@ -316,25 +318,30 @@ mkFoldDim
     -> CodeGen (IROpenAcc PTX aenv (Array sh e))
 mkFoldDim dev aenv combine mseed IRDelayed{..} =
   let
-      (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Array sh e))
-      paramEnv                  = envParam aenv
+      (start', end', paramGang)   = gangParam
+      (arrOut, paramOut)  = mutableArray ("out" :: Name (Array sh e))
+      paramEnv            = envParam aenv
       --
-      config                    = launchConfig dev (CUDA.incWarp dev) smem const
-      smem n                    = warps * (1 + per_warp) * bytes
+      config              = launchConfig dev (CUDA.incWarp dev) smem const
+      smem n              = warps * (1 + per_warp) * bytes
         where
           ws        = CUDA.warpSize dev
-          warps     = n `div` ws
-          per_warp  = ws + ws `div` 2
+          warps     = n `P.quot` ws
+          per_warp  = ws + ws `P.quot` 2
           bytes     = sizeOf (eltType (undefined :: e))
   in
   makeOpenAccWith config "fold" (paramGang ++ paramOut ++ paramEnv) $ do
 
     -- If the innermost dimension is smaller than the number of threads in the
     -- block, those threads will never contribute to the output.
-    tid <- threadIdx
-    sz  <- i32 . indexHead =<< delayedExtent
-    when (A.lt scalarType tid sz) $ do
+    tid   <- threadIdx
+    sz    <- indexHead <$> delayedExtent
+    sz'   <- i32 sz
+
+    when (A.lt scalarType tid sz') $ do
+
+      start <- return start' :: CodeGen (IR Int32)
+      end   <- return end' :: CodeGen (IR Int32)
 
       -- Thread blocks iterate over the outer dimensions, each thread block
       -- cooperatively reducing along each outermost index to a single value.
@@ -347,15 +354,15 @@ mkFoldDim dev aenv combine mseed IRDelayed{..} =
         __syncthreads
 
         -- Step 1: initialise local sums
-        from  <- A.mul numType seg  sz          -- first linear index this block will reduce
-        to    <- A.add numType from sz          -- last linear index this block will reduce (exclusive)
+        from  <- A.mul numType seg  sz'          -- first linear index this block will reduce
+        to    <- A.add numType from sz'          -- last linear index this block will reduce (exclusive)
 
         i0    <- A.add numType from tid
-        x0    <- app1 delayedLinearIndex =<< A.fromIntegral integralType numType i0
+        x0    <- app1 delayedLinearIndex =<< int i0
         bd    <- blockDim
-        r0    <- if A.gte scalarType sz bd
-                   then reduceBlockSMem dev combine Nothing   x0
-                   else reduceBlockSMem dev combine (Just sz) x0
+        r0    <- if A.gte scalarType sz' bd
+                   then reduceBlockSMem dev combine Nothing    x0
+                   else reduceBlockSMem dev combine (Just sz') x0
 
         -- Step 2: keep walking over the input
         next  <- A.add numType from bd
@@ -365,25 +372,34 @@ mkFoldDim dev aenv combine mseed IRDelayed{..} =
           __syncthreads
 
           -- Threads cooperatively reduce this stripe of the input
-          i     <- A.add numType offset tid
-          i'    <- A.fromIntegral integralType numType i
-          valid <- A.sub numType to offset
-          r'    <- if A.gte scalarType valid bd
-                      -- All threads of the block are valid, so we can avoid
-                      -- bounds checks.
-                      then do
-                        x <- app1 delayedLinearIndex i'
-                        reduceBlockSMem dev combine Nothing x
+          i   <- A.add numType offset tid
+          v  <- A.sub numType to offset
+          r'  <- if A.gte scalarType v bd
+                   -- All threads of the block are valid, so we can avoid
+                   -- bounds checks.
+                   then do
+                     x <- app1 delayedLinearIndex =<< int i
+                     y <- reduceBlockSMem dev combine Nothing x
+                     return y
 
-                      -- Otherwise we require bounds checks when reading the
-                      -- input and during the reduction.
-                      else
-                      if A.lt scalarType i to
-                        then do
-                          x <- app1 delayedLinearIndex i'
-                          reduceBlockSMem dev combine (Just valid) x
-                        else
-                          return r
+                   -- Otherwise, we require bounds checks when reading the input
+                   -- and during the reduction. Note that even though only the
+                   -- valid threads will contribute useful work in the
+                   -- reduction, we must still have all threads enter the
+                   -- reduction procedure to avoid synchronisation divergence.
+                   else do
+                     x <- if A.lt scalarType i to
+                            then app1 delayedLinearIndex =<< int i
+                            else let
+                                     go :: TupleType a -> Operands a
+                                     go UnitTuple       = OP_Unit
+                                     go (PairTuple a b) = OP_Pair (go a) (go b)
+                                     go (SingleTuple t) = ir' t (undef t)
+                                 in
+                                 return . IR $ go (eltType (undefined::e))
+
+                     y <- reduceBlockSMem dev combine (Just v) x
+                     return y
 
           if A.eq scalarType tid (lift 0)
             then app2 combine r r'
@@ -399,7 +415,6 @@ mkFoldDim dev aenv combine mseed IRDelayed{..} =
               Just z  -> flip (app2 combine) r =<< z  -- Note: initial element on the left
 
     return_
-
 
 -- Exclusive reductions over empty arrays (of any dimension) fill the lower
 -- dimensions with the initial element.
@@ -611,6 +626,8 @@ reduceFromTo dev from to combine get set = do
 i32 :: IR Int -> CodeGen (IR Int32)
 i32 = A.fromIntegral integralType numType
 
+int :: IR Int32 -> CodeGen (IR Int)
+int = A.fromIntegral integralType numType
 
 imapFromTo
     :: IR Int32
