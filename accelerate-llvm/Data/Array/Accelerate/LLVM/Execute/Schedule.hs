@@ -30,8 +30,11 @@ data Schedule index = Schedule
   , prevChange :: !Change
   }
 
+--chunked :: (Int, Int) -> Schedule (Int, Int)
+--chunked p = Schedule p Nothing Maintain
 chunked :: (Int, Int) -> Schedule (Int, Int)
-chunked p = Schedule p Nothing Maintain
+chunked (p0, p1) | Just n <- fixedChunkSize = Schedule (p0, n) Nothing Maintain
+                 | otherwise = error "???" -- Schedule (p0, p1) Nothing Maintain
 
 -- |Compute the next schedule given the previous schedule and the total time it
 -- took to compute all the work in the schedule.
@@ -119,5 +122,5 @@ nextChunked Schedule{..} time
 
 {-# NOINLINE fixedChunkSize #-}
 fixedChunkSize :: Maybe Int
-fixedChunkSize = unsafePerformIO $ queryFlag seq_chunk_size
+fixedChunkSize = Just 1000000 -- unsafePerformIO $ queryFlag seq_chunk_size
 

@@ -4,6 +4,7 @@
 {-# LANGUAGE RebindableSyntax    #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE ViewPatterns        #-}
 -- |
@@ -252,8 +253,8 @@ mkScanAllP1
 mkScanAllP1 dir dev aenv combine mseed IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Vector e))
-      (arrTmp, paramTmp)        = mutableArray ("tmp" :: Name (Vector e))
+      (arrOut, paramOut)        = mutableArray @DIM1 @e "out"
+      (arrTmp, paramTmp)        = mutableArray @DIM1 @e "tmp"
       paramEnv                  = envParam aenv
       --
       config                    = launchConfig dev (CUDA.incWarp dev) smem const
@@ -363,7 +364,7 @@ mkScanAllP2
 mkScanAllP2 dir dev aenv combine =
   let
       (start, end, paramGang)   = gangParam
-      (arrTmp, paramTmp)        = mutableArray ("tmp" :: Name (Vector e))
+      (arrTmp, paramTmp)        = mutableArray @DIM1 "tmp"
       paramEnv                  = envParam aenv
       --
       config                    = launchConfig dev (CUDA.incWarp dev) smem grid
@@ -403,6 +404,7 @@ mkScanAllP2 dir dev aenv combine =
 
       when (valid i0) $ do
 
+        -- wait for the carry-in value to be updated
         __syncthreads
 
         x0 <- readArray arrTmp i0
@@ -448,8 +450,8 @@ mkScanAllP3
 mkScanAllP3 dir dev aenv combine mseed =
   let
       (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Vector e))
-      (arrTmp, paramTmp)        = mutableArray ("tmp" :: Name (Vector e))
+      (arrOut, paramOut)        = mutableArray @DIM1 "out"
+      (arrTmp, paramTmp)        = mutableArray @DIM1 "tmp"
       paramEnv                  = envParam aenv
       --
       stride                    = local           scalarType ("ix.stride" :: Name Int32)
@@ -544,8 +546,8 @@ mkScan'AllP1
 mkScan'AllP1 dir dev aenv combine seed IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Vector e))
-      (arrTmp, paramTmp)        = mutableArray ("tmp" :: Name (Vector e))
+      (arrOut, paramOut)        = mutableArray @DIM1 "out"
+      (arrTmp, paramTmp)        = mutableArray @DIM1 "tmp"
       paramEnv                  = envParam aenv
       --
       config                    = launchConfig dev (CUDA.incWarp dev) smem const
@@ -651,8 +653,8 @@ mkScan'AllP2
 mkScan'AllP2 dir dev aenv combine =
   let
       (start, end, paramGang)   = gangParam
-      (arrTmp, paramTmp)        = mutableArray ("tmp" :: Name (Vector e))
-      (arrSum, paramSum)        = mutableArray ("sum" :: Name (Scalar e))
+      (arrTmp, paramTmp)        = mutableArray @DIM1 "tmp"
+      (arrSum, paramSum)        = mutableArray @DIM0 "sum"
       paramEnv                  = envParam aenv
       --
       config                    = launchConfig dev (CUDA.incWarp dev) smem grid
@@ -675,7 +677,6 @@ mkScan'AllP2 dir dev aenv combine =
     tid <- threadIdx
     bd  <- blockDim
     imapFromStepTo start bd end $ \offset -> do
-
       i0  <- case dir of
                L -> A.add numType offset tid
                R -> do x <- A.sub numType end offset
@@ -687,35 +688,43 @@ mkScan'AllP2 dir dev aenv combine =
                       L -> A.lt  scalarType i end
                       R -> A.gte scalarType i start
 
-      when (valid i0) $ do
+      -- wait for the carry-in value to be updated
+      __syncthreads
 
-        -- wait for the carry-in value to be updated
-        __syncthreads
+      x0 <- if valid i0
+              then readArray arrTmp i0
+              else
+                let go :: TupleType a -> Operands a
+                    go UnitTuple       = OP_Unit
+                    go (PairTuple a b) = OP_Pair (go a) (go b)
+                    go (SingleTuple t) = ir' t (undef t)
+                in
+                return . IR $ go (eltType @e undefined)
 
-        x0 <- readArray arrTmp i0
-        x1 <- if A.gt scalarType offset (lift 0) `A.land` A.eq scalarType tid (lift 0)
-                then do
-                  c <- readArray carry (lift 0 :: IR Int32)
-                  case dir of
-                    L -> app2 combine c x0
-                    R -> app2 combine x0 c
-                else
-                  return x0
+      x1 <- if A.gt scalarType offset (lift 0) `A.land` A.eq scalarType tid (lift 0)
+              then do
+                c <- readArray carry (lift 0 :: IR Int32)
+                case dir of
+                  L -> app2 combine c x0
+                  R -> app2 combine x0 c
+              else
+                return x0
 
-        n  <- A.sub numType end offset
-        x2 <- if A.gte scalarType n bd
-                then scanBlockSMem dir dev combine Nothing  x1
-                else scanBlockSMem dir dev combine (Just n) x1
+      n  <- A.sub numType end offset
+      x2 <- if A.gte scalarType n bd
+              then scanBlockSMem dir dev combine Nothing   x1
+              else scanBlockSMem dir dev combine (Just n) x1
 
-        -- Update the partial results array
+      -- Update the partial results array
+      when (valid i0) $
         writeArray arrTmp i0 x2
 
-        -- The last active thread saves its result as the carry-out value.
-        m  <- do x <- A.min scalarType bd n
-                 y <- A.sub numType x (lift 1)
-                 return y
-        when (A.eq scalarType tid m) $
-          writeArray carry (lift 0 :: IR Int32) x2
+      -- The last active thread saves its result as the carry-out value.
+      m  <- do x <- A.min scalarType bd n
+               y <- A.sub numType x (lift 1)
+               return y
+      when (A.eq scalarType tid m) $
+        writeArray carry (lift 0 :: IR Int32) x2
 
     -- First thread stores the final carry-out values at the final reduction
     -- result for the entire array
@@ -742,8 +751,8 @@ mkScan'AllP3
 mkScan'AllP3 dir dev aenv combine =
   let
       (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Vector e))
-      (arrTmp, paramTmp)        = mutableArray ("tmp" :: Name (Vector e))
+      (arrOut, paramOut)        = mutableArray @DIM1 "out"
+      (arrTmp, paramTmp)        = mutableArray @DIM1 "tmp"
       paramEnv                  = envParam aenv
       --
       stride                    = local           scalarType ("ix.stride" :: Name Int32)
@@ -827,7 +836,7 @@ mkScanDim
 mkScanDim dir dev aenv combine mseed IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Array (sh:.Int) e))
+      (arrOut, paramOut)        = mutableArray @(sh:.Int) "out"
       paramEnv                  = envParam aenv
       --
       config                    = launchConfig dev (CUDA.incWarp dev) smem const
@@ -1016,8 +1025,8 @@ mkScan'Dim
 mkScan'Dim dir dev aenv combine seed IRDelayed{..} =
   let
       (start, end, paramGang)   = gangParam
-      (arrOut, paramOut)        = mutableArray ("out" :: Name (Array (sh:.Int) e))
-      (arrSum, paramSum)        = mutableArray ("sum" :: Name (Array sh e))
+      (arrOut, paramOut)        = mutableArray @(sh:.Int) "out"
+      (arrSum, paramSum)        = mutableArray @sh        "sum"
       paramEnv                  = envParam aenv
       --
       config                    = launchConfig dev (CUDA.incWarp dev) smem const
@@ -1096,7 +1105,7 @@ mkScan'Dim dir dev aenv combine seed IRDelayed{..} =
         n0  <- A.sub numType sup inf
         void $ while
           (\(A.fst3   -> n)       -> A.gt scalarType n (lift 0))
-          (\(A.untrip -> (n,i,j)) -> do
+          (\(A.untrip -> (n,i,j) :: (IR Int32, IR Int32, IR Int32)) -> do
 
             -- Wait for threads to catch up to ensure the carry-in value from
             -- the last iteration has been updated
@@ -1137,26 +1146,38 @@ mkScan'Dim dir dev aenv combine seed IRDelayed{..} =
                     -- Only threads that are in bounds can participate. This is
                     -- the last iteration of the loop. The last active thread
                     -- still needs to store its value into the carry-in slot.
+                    --
+                    -- Note that all threads must call the block-wide scan.
+                    -- SEE: [Synchronisation problems with SM_70 and greater]
                     else do
-                      when (A.lt scalarType tid n) $ do
-                        x <- app1 delayedLinearIndex =<< A.fromIntegral integralType numType i
-                        y <- if A.eq scalarType tid (lift 0)
-                                then do
-                                  c <- readArray carry (lift 0 :: IR Int32)
-                                  case dir of
-                                    L -> app2 combine c x
-                                    R -> app2 combine x c
-                                else
-                                  return x
-                        z <- scanBlockSMem dir dev combine (Just n) y
+                      x <- if A.lt scalarType tid n
+                              then do
+                                x <- app1 delayedLinearIndex =<< A.fromIntegral integralType numType i
+                                y <- if A.eq scalarType tid (lift 0)
+                                        then do
+                                          c <- readArray carry (lift 0 :: IR Int32)
+                                          case dir of
+                                            L -> app2 combine c x
+                                            R -> app2 combine x c
+                                        else
+                                          return x
+                                return y
+                              else
+                                let
+                                    go :: TupleType a -> Operands a
+                                    go UnitTuple       = OP_Unit
+                                    go (PairTuple a b) = OP_Pair (go a) (go b)
+                                    go (SingleTuple t) = ir' t (undef t)
+                                in
+                                return . IR $ go (eltType @e undefined)
 
-                        m <- A.sub numType n (lift 1)
-                        _ <- if A.lt scalarType tid m
-                               then writeArray arrOut j                   z >> return (IR OP_Unit :: IR ())
-                               else writeArray carry (lift 0 :: IR Int32) z >> return (IR OP_Unit :: IR ())
+                      y <- scanBlockSMem dir dev combine (Just n) x
 
-                        return ()
-                      return (IR OP_Unit :: IR ())
+                      m <- A.sub numType n (lift 1)
+                      when (A.lt scalarType tid m) $ writeArray arrOut j              y
+                      when (A.eq scalarType tid m) $ writeArray carry (lift @Int32 0) y
+
+                      return $ IR OP_Unit
 
             A.trip <$> A.sub numType n bd <*> next i <*> next j)
           (A.trip n0 i0 j0)
@@ -1205,6 +1226,16 @@ mkScan'Fill ptx aenv seed =
 -- allocated shared memory.
 --
 -- Example: https://github.com/NVlabs/cub/blob/1.5.4/cub/block/specializations/block_scan_warp_scans.cuh
+--
+-- NOTE: [Synchronisation problems with SM_70 and greater]
+--
+-- This operation uses thread synchronisation. When calling this operation, it
+-- is important that all active (that is, non-exited) threads of the thread
+-- block participate. It seems that sm_70+ (devices with independent thread
+-- scheduling) are stricter about the requirement that all non-existed threads
+-- participate in every barrier.
+--
+-- See: https://github.com/AccelerateHS/accelerate/issues/436
 --
 scanBlockSMem
     :: forall aenv e. Elt e
@@ -1330,3 +1361,8 @@ scanWarpSMem dir dev combine smem = scan 0
 
           scan (step+1) x'
 
+i32 :: IR Int -> CodeGen (IR Int32)
+i32 = A.fromIntegral integralType numType
+
+int :: IR Int32 -> CodeGen (IR Int)
+int = A.fromIntegral integralType numType

@@ -35,6 +35,7 @@ data Terminator a where
   --
   RetVal        :: Operand a
                 -> Terminator a
+
   -- <http://llvm.org/docs/LangRef.html#br-instruction>
   --
   Br            :: Label
